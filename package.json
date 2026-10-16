@@ -9,9 +9,14 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@langchain/openai": "^1.6.2",
+    "@mradex77/google-play-scraper": "^1.4.0",
+    "@perttu/app-store-scraper": "^2.1.0",
     "@supabase/supabase-js": "2.117.2",
     "dotenv": "16.6.1",
+    "ml-kmeans": "^7.0.1",
     "next": "16.4.0",
+    "openai": "^7.30.0",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },

@@ -22,7 +22,7 @@ async function main() {
   const ideaUuidByMockId = await seedIdeas(supabase, userUuidByMockId);
   const analysisUuidByMockId = await seedAnalyses(supabase, ideaUuidByMockId);
   const competitorUuidByMockId = await seedAnalysisCompetitors(supabase, analysisUuidByMockId);
-  const reviewThemeUuidByMockId = await seedReviewThemes(supabase, analysisUuidByMockId);
+  const reviewThemeUuidByMockId = await seedReviewThemes(supabase, analysisUuidByMockId, competitorUuidByMockId);
 
   console.log('Supabase mock seed completed.');
   console.log(`Users: ${userUuidByMockId.size}; ideas: ${ideaUuidByMockId.size}; analyses: ${analysisUuidByMockId.size}; competitors: ${competitorUuidByMockId.size}; review themes: ${reviewThemeUuidByMockId.size}.`);

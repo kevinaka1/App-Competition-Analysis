@@ -1,5 +1,5 @@
 import marketFixtures from '@/mockData/market-fixtures.json';
-import type { HistoryEntry, MarketFixtures, MarketSnapshot, MarketUser, Sentiment } from '@/types/market';
+import type { HistoryEntry, MarketFixtures, MarketSnapshot, MarketUser, ReviewTheme, Sentiment } from '@/types/market';
 
 const mockDatabase = marketFixtures as MarketFixtures;
 
@@ -22,14 +22,18 @@ function toSnapshot(analysis: MarketFixtures['analyses'][number], override?: { u
   const storedIdea = findIdea(analysis.mockIdeaId);
   if (!storedIdea) return null;
 
+  const themeRows = mockDatabase.reviewThemes
+    .filter((row) => row.mockAnalysisId === analysis.mockId && row.mockAnalysisCompetitorId)
+    .sort((a, b) => b.mentions - a.mentions);
+  const hasUnassignedReviewThemes = mockDatabase.reviewThemes.some((row) => row.mockAnalysisId === analysis.mockId && !row.mockAnalysisCompetitorId);
   const competitors = mockDatabase.analysisCompetitors
     .filter((row) => row.mockAnalysisId === analysis.mockId)
-    .map((row) => ({ id: row.mockId, name: row.appName, appSummary: row.appSummary, url: row.appUrl, rating: row.rating, similarityPercent: row.matchPercent }));
-  const reviewThemes: Record<Sentiment, MarketSnapshot['reviewThemes'][Sentiment]> = { positive: [], average: [], negative: [] };
-  mockDatabase.reviewThemes
-    .filter((row) => row.mockAnalysisId === analysis.mockId)
-    .sort((a, b) => b.mentions - a.mentions)
-    .forEach((row) => reviewThemes[row.sentiment].push({ id: row.mockId, name: row.summary, example: row.exampleReview, mentions: row.mentions }));
+    .map((row) => {
+      const reviewThemes: Record<Sentiment, ReviewTheme[]> = { positive: [], average: [], negative: [] };
+      themeRows.filter((theme) => theme.mockAnalysisCompetitorId === row.mockId)
+        .forEach((theme) => reviewThemes[theme.sentiment].push({ id: theme.mockId, name: theme.summary, example: theme.exampleReview, mentions: theme.mentions }));
+      return { id: row.mockId, name: row.appName, appSummary: row.appSummary, url: row.appUrl, rating: row.rating, similarityPercent: row.matchPercent, reviewThemes };
+    });
 
   return {
     idea: {
@@ -48,7 +52,7 @@ function toSnapshot(analysis: MarketFixtures['analyses'][number], override?: { u
       createdAt: analysis.createdAt
     },
     competitors,
-    reviewThemes,
+    hasUnassignedReviewThemes,
     summary: {
       similarAppCount: analysis.similarAppCount,
       reviewsScannedCount: analysis.reviewsScannedCount,

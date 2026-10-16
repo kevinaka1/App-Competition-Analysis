@@ -8,21 +8,22 @@ function requireUuidByMockId(mockIdMap, mockId, fieldName) {
 
 async function upsertAndReturnIds(supabase, tableName, rows) {
   if (!rows.length) return new Map();
-
-  const mockIds = rows.map(row => row.mock_id);
-  const { data: existingRows, error: lookupError } = await supabase
-    .from(tableName)
-    .select('id,mock_id')
-    .in('mock_id', mockIds);
-
-  if (lookupError) throw new Error(`Failed to look up ${tableName} mock IDs: ${lookupError.message}`);
-
   const idByMockId = new Map();
-  for (const row of existingRows) {
-    if (idByMockId.has(row.mock_id)) {
-      throw new Error(`Found duplicate mock_id=${row.mock_id} in ${tableName}. Remove the duplicate before seeding.`);
+  const batchSize = 100;
+
+  for (let start = 0; start < rows.length; start += batchSize) {
+    const mockIds = rows.slice(start, start + batchSize).map(row => row.mock_id);
+    const { data, error } = await supabase
+      .from(tableName)
+      .select('id,mock_id')
+      .in('mock_id', mockIds);
+    if (error) throw new Error(`Failed to look up ${tableName} mock IDs: ${error.message}`);
+    for (const row of data) {
+      if (idByMockId.has(row.mock_id)) {
+        throw new Error(`Found duplicate mock_id=${row.mock_id} in ${tableName}. Remove the duplicate before seeding.`);
+      }
+      idByMockId.set(row.mock_id, row.id);
     }
-    idByMockId.set(row.mock_id, row.id);
   }
 
   const newRows = [];
@@ -37,18 +38,18 @@ async function upsertAndReturnIds(supabase, tableName, rows) {
       .from(tableName)
       .update(row)
       .eq('id', existingId)
-      .select('id,mock_id')
-      .single();
+      .select('id,mock_id');
     if (error) throw new Error(`Failed to update ${tableName} mock_id=${row.mock_id}: ${error.message}`);
-    idByMockId.set(data.mock_id, data.id);
+    if (data.length !== 1) throw new Error(`Expected one ${tableName} row for mock_id=${row.mock_id}.`);
+    idByMockId.set(data[0].mock_id, data[0].id);
   }
 
-  if (newRows.length) {
+  for (let start = 0; start < newRows.length; start += batchSize) {
+    const batch = newRows.slice(start, start + batchSize);
     const { data, error } = await supabase
       .from(tableName)
-      .insert(newRows)
+      .insert(batch)
       .select('id,mock_id');
-
     if (error) throw new Error(`Failed to insert ${tableName}: ${error.message}`);
     for (const row of data) idByMockId.set(row.mock_id, row.id);
   }

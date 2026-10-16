@@ -1,4 +1,4 @@
-const mockData = require('../../data/market-fixtures.json');
+const mockData = require('../../mockData/market-fixtures.json');
 const { requireUuidByMockId, upsertAndReturnIds } = require('./lib.js');
 
 async function seedAnalysisCompetitors(supabase, analysisUuidByMockId) {

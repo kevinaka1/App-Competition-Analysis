@@ -29,6 +29,7 @@ export interface Competitor {
   url: string | null;
   rating: number | null;
   similarityPercent: number | null;
+  reviewThemes: Record<Sentiment, ReviewTheme[]>;
 }
 
 export interface MarketSnapshot {
@@ -48,7 +49,7 @@ export interface MarketSnapshot {
     createdAt: string;
   };
   competitors: Competitor[];
-  reviewThemes: Record<Sentiment, ReviewTheme[]>;
+  hasUnassignedReviewThemes: boolean;
   summary: {
     similarAppCount: number;
     reviewsScannedCount: number;
@@ -63,5 +64,5 @@ export interface MarketFixtures {
   ideas: Array<{ mockId: string; mockUserId: string; name: string; description: string; createdAt: string }>;
   analyses: Array<{ mockId: string; mockIdeaId: string; similarAppCount: number; reviewsScannedCount: number; sentimentGroupCount: number; createdAt: string }>;
   analysisCompetitors: Array<{ mockId: string; mockAnalysisId: string; appName: string; appSummary: string; appUrl: string; rating: number; matchPercent: number }>;
-  reviewThemes: Array<{ mockId: string; mockAnalysisId: string; sentiment: Sentiment; summary: string; exampleReview: string; mentions: number }>;
+  reviewThemes: Array<{ mockId: string; mockAnalysisId: string; mockAnalysisCompetitorId: string; sentiment: Sentiment; summary: string; exampleReview: string; mentions: number }>;
 }

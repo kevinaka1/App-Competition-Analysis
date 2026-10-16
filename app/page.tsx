@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { marketApi } from '@/lib/market-client';
-import { marketData } from '@/mockApis/market-data';
 import type { HistoryEntry, MarketSnapshot, MarketUser, Sentiment } from '@/types/market';
 
 const groups: Array<{ key: Sentiment; title: string; label: string }> = [
@@ -10,6 +9,16 @@ const groups: Array<{ key: Sentiment; title: string; label: string }> = [
   { key: 'average', title: 'Mixed', label: 'Average' },
   { key: 'negative', title: 'Frustrated', label: 'Negative' }
 ];
+
+type AnalysisProgress = 'findingApps' | 'loadingMetadata' | 'fetchingReviews' | 'generatingThemes' | 'saving';
+
+const analysisProgressLabels: Record<AnalysisProgress, string> = {
+  findingApps: 'Finding similar apps…',
+  loadingMetadata: 'Loading app details…',
+  fetchingReviews: 'Collecting recent reviews…',
+  generatingThemes: 'Generating review themes…',
+  saving: 'Saving your snapshot…'
+};
 
 function formatMentions(count: number): string {
   const value = count >= 1000 ? `${(count / 1000).toFixed(count % 1000 === 0 ? 0 : 1)}k` : count.toLocaleString();
@@ -22,10 +31,12 @@ export default function HomePage() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [description, setDescription] = useState('An app that helps people plan meals around what’s already in their fridge, with recipes that adapt to dietary needs.');
   const [snapshot, setSnapshot] = useState<MarketSnapshot | null>(null);
+  const [selectedCompetitorId, setSelectedCompetitorId] = useState<string | null>(null);
   const [group, setGroup] = useState<Sentiment>('positive');
   const [showAll, setShowAll] = useState(false);
   const [page, setPage] = useState<'home' | 'explore'>('home');
   const [loading, setLoading] = useState(false);
+  const [analysisProgress, setAnalysisProgress] = useState<AnalysisProgress | null>(null);
   const [toastMessage, setToastMessage] = useState('');
   const [historyError, setHistoryError] = useState('');
   const [roadmapOpen, setRoadmapOpen] = useState(false);
@@ -68,11 +79,17 @@ export default function HomePage() {
 
   function showHome() {
     setPage('home');
+    setSnapshot(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   function showExplore() {
     setPage('explore');
+    setSnapshot(null);
+    setSelectedCompetitorId(null);
+    setDescription('');
+    setGroup('positive');
+    setShowAll(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -82,6 +99,7 @@ export default function HomePage() {
       return;
     }
     setSnapshot(next);
+    setSelectedCompetitorId(next.competitors[0]?.id ?? null);
     setGroup('positive');
     setShowAll(false);
     setDescription(next.idea.description);
@@ -116,15 +134,57 @@ export default function HomePage() {
       toast('Please keep your idea under 500 characters.');
       return;
     }
+    if (!currentUserId) {
+      toast('Select a user before saving this analysis.');
+      return;
+    }
     setLoading(true);
+    setAnalysisProgress('findingApps');
+    window.setTimeout(() => document.getElementById('results')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
     try {
-      const preview = await marketData.getSampleAnalysis(currentUserId || 'usr_alex_morgan', text);
-      showSnapshot(preview);
+      const similarApps = await marketApi.findSimilarApps(text);
+      setAnalysisProgress('loadingMetadata');
+      const appsWithMetadata = await marketApi.getAppMetadata(similarApps.apps);
+      setAnalysisProgress('fetchingReviews');
+      const appReviews = await marketApi.getReviews(appsWithMetadata);
+      const reviewedCompetitors = appReviews.flatMap((app, appIndex) =>
+        Object.values(app.reviews).some((reviews) => reviews.length > 0)
+          ? [{ app, metadata: appsWithMetadata[appIndex] }]
+          : []
+      );
+      if (reviewedCompetitors.length === 0) {
+        throw new Error('No similar apps returned reviews. Try another idea and analyze again.');
+      }
+      const appsWithReviews = reviewedCompetitors.map(({ metadata }) => metadata);
+      const appReviewsWithData = reviewedCompetitors.map(({ app }) => app);
+      setAnalysisProgress('generatingThemes');
+      const reviewThemesByApp = await marketApi.clusterReviews(appReviewsWithData);
+      console.info('[review clusters by app]', reviewThemesByApp.map(({ appIndex, groups: themes }) => ({
+        app: appsWithReviews[appIndex]?.name,
+        themes: Object.fromEntries(Object.entries(themes).map(([sentiment, clusters]) => [
+          sentiment,
+          clusters.map(({ summary, mentions }) => ({ summary, mentions }))
+        ]))
+      })));
+      setAnalysisProgress('saving');
+      const saved = await marketApi.createAnalysis({
+        userId: currentUserId,
+        ideaId: snapshot?.idea.description === text ? snapshot.idea.id : undefined,
+        description: text,
+        suggestedAppName: similarApps.suggestedAppName,
+        apps: appsWithReviews,
+        reviewThemesByApp
+      });
+      await loadHistory(currentUserId);
+      const savedSnapshot = await marketApi.getSnapshot(saved.analysisId);
+      if (!savedSnapshot) throw new Error('The analysis was saved, but its snapshot could not be loaded.');
+      showSnapshot(savedSnapshot);
     } catch (error) {
-      console.error('Market preview failed:', error);
-      toast(error instanceof Error ? error.message : 'We could not load the market snapshot. Please try again.');
+      console.error('Market analysis failed:', error);
+      toast(error instanceof Error ? error.message : 'We could not analyze the market. Please try again.');
     } finally {
       setLoading(false);
+      setAnalysisProgress(null);
     }
   }
 
@@ -144,7 +204,11 @@ export default function HomePage() {
       ...snapshot.competitors.map((app, index) => `${index + 1}. ${app.name} — ${app.appSummary}${app.url ? ` — ${app.url}` : ''}`),
       '',
       'Common review themes',
-      ...Object.entries(snapshot.reviewThemes).flatMap(([sentiment, themes]) => [sentiment.toUpperCase(), ...themes.map((theme) => `• ${theme.name} (${formatMentions(theme.mentions)}) — ${theme.example}`), ''])
+      ...snapshot.competitors.flatMap((app) => [
+        app.name,
+        ...groups.flatMap(({ key, title }) => [title.toUpperCase(), ...app.reviewThemes[key].map((theme) => `• ${theme.name} (${formatMentions(theme.mentions)}) — ${theme.example}`)]),
+        ''
+      ])
     ];
     const blobUrl = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/plain' }));
     const link = document.createElement('a');
@@ -157,13 +221,8 @@ export default function HomePage() {
 
   const currentUser = users.find((user) => user.id === currentUserId);
   const visibleCompetitors = snapshot ? (showAll ? snapshot.competitors : snapshot.competitors.slice(0, 5)) : [];
-  const currentThemes = snapshot?.reviewThemes[group] ?? [];
-  const sampleIdeas = [
-    'An app that helps runners find safe, well-lit routes nearby and keep friends updated on their progress.',
-    'A simple budgeting app that helps couples split shared bills, track subscriptions, and save for a goal together.',
-    'A fitness app that builds short, equipment-free workouts around the time and energy I have each day.'
-  ];
-
+  const selectedCompetitor = snapshot?.competitors.find((app) => app.id === selectedCompetitorId) ?? null;
+  const currentThemes = selectedCompetitor?.reviewThemes[group] ?? [];
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -173,13 +232,13 @@ export default function HomePage() {
         </a>
         <div className="workspace-label">WORKSPACE</div>
         <button className={`nav-item ${page === 'home' ? 'active' : ''}`} onClick={showHome}><span className="nav-icon">⌂</span><span>Home</span></button>
-        <button className={`nav-item ${page === 'explore' ? 'active' : ''}`} onClick={showExplore}><span className="nav-icon">⌕</span><span>Explore market</span><span className="nav-count">01</span></button>
+        <button className={`nav-item ${page === 'explore' && !snapshot ? 'active' : ''}`} onClick={showExplore}><span className="nav-icon">⌕</span><span>Explore market</span><span className="nav-count">01</span></button>
         <button className="nav-item muted" title="Coming in a future stage" onClick={() => toast('This stage is planned for a future release.')}><span className="nav-icon">◈</span><span>Feature checks</span><span className="soon">SOON</span></button>
         <div className="side-rule" />
         <div className="workspace-label">YOUR WORK</div>
         <div className="history-list">
           {historyError ? <div className="empty-history">{historyError}</div> : history.length ? history.map((entry) => (
-            <button className="history-entry" key={entry.analysisId} title={entry.description} onClick={() => void openHistory(entry)}>
+            <button className={`history-entry ${snapshot?.analysis.id === entry.analysisId ? 'active' : ''}`} key={entry.analysisId} title={entry.description} aria-current={snapshot?.analysis.id === entry.analysisId ? 'page' : undefined} onClick={() => void openHistory(entry)}>
               <span className="history-entry-icon">⌕</span><span className="history-entry-text"><strong>{entry.name}</strong><small>{new Date(entry.createdAt).toLocaleDateString()}</small></span>
             </button>
           )) : <div className="empty-history">{currentUserId ? 'No research yet. Start with an idea.' : 'Your research will show up here.'}</div>}
@@ -217,20 +276,27 @@ export default function HomePage() {
             <div className="card-label"><span className="spark">✳</span> YOUR APP IDEA <span className="optional">Be specific — the details help us find better matches.</span></div>
             <label className="sr-only" htmlFor="idea">Describe the app you want to build</label>
             <textarea id="idea" rows={3} placeholder="An app that helps people plan meals around what’s already in their fridge, with recipes that adapt to dietary needs…" value={description} onChange={(event) => setDescription(event.target.value)} onKeyDown={onIdeaKeyDown} />
-            <div className="form-footer"><span className="char-count"><span>{charCount}</span> / 500</span><div className="form-actions"><button className="sample-btn" onClick={() => setDescription(sampleIdeas.find((sample) => sample !== description) ?? sampleIdeas[0])}>↻ Try another idea</button><button className="analyze-btn" disabled={loading} onClick={() => void analyze()}><span>{loading ? 'Loading sample…' : 'Analyze the market'}</span><span className="arrow">↗</span></button></div></div>
+            <div className="form-footer"><span className="char-count"><span>{charCount}</span> / 500</span><div className="form-actions"><button className="analyze-btn" disabled={loading} onClick={() => void analyze()}><span>{loading && analysisProgress ? analysisProgressLabels[analysisProgress] : snapshot && snapshot.idea.description === description.trim() ? 'Re-analyze the market' : 'Analyze the market'}</span><span className="arrow">↗</span></button></div></div>
           </section>
 
-          <div className="trust-note"><span className="lock">⌑</span> This preview uses illustrative sample competitors and review themes. It does not search app stores or collect live reviews.</div>
+          <div className="trust-note"><span className="lock">⌑</span> Competitor listings, ratings, and recent reviews are fetched live. Review themes are clustered separately for each app.</div>
 
-          {snapshot ? <section className="results" id="results" aria-live="polite">
-            <div className="results-head"><div><div className="section-kicker"><span className="live-pulse" /> MARKET SNAPSHOT <span className="demo-pill">ILLUSTRATIVE DATA</span></div><h2>Here’s what the market is telling you.</h2><p className="results-sub">A first look at the apps closest to your idea and the patterns in their reviews.</p></div><button className="export-btn" onClick={() => void exportSummary()}>↓ <span>Export summary</span></button></div>
+          {loading ? <section className="results analysis-loading" id="results" aria-live="polite" aria-busy="true">
+            <div className="results-head"><div><div className="section-kicker"><span className="live-pulse" /> MARKET SNAPSHOT <span className="demo-pill">IN PROGRESS</span></div><h2>Analyzing your idea</h2><p className="results-sub">{analysisProgress ? analysisProgressLabels[analysisProgress] : 'Preparing your market snapshot…'}</p></div></div>
+            <div className="summary-strip"><div className="summary-item"><span className="summary-icon green">⌕</span><div><strong className="loading-value">—</strong><span>similar apps</span></div></div><div className="summary-divider" /><div className="summary-item"><span className="summary-icon violet">▤</span><div><strong className="loading-value">—</strong><span>reviews scanned</span></div></div><div className="summary-divider" /><div className="summary-item"><span className="summary-icon amber">◎</span><div><strong className="loading-value">—</strong><span>sentiment groups</span></div></div></div>
+            <div className="analysis-grid">
+              <section className="panel competitors-panel" aria-label="Similar apps being found"><div className="panel-heading"><div><span className="panel-index">01</span><h3>Similar apps</h3></div><span className="panel-meta">IN PROGRESS</span></div><div className="loading-panel-content"><span className="loading-status"><span className="loading-spinner" />{analysisProgress === 'findingApps' ? 'Finding similar apps…' : analysisProgress === 'loadingMetadata' ? 'Loading app details…' : 'Preparing competitor listings…'}</span><div className="loading-lines" aria-hidden="true"><i /><i /><i /></div></div></section>
+              <section className="panel themes-panel" aria-label="Review themes being generated"><div className="panel-heading"><div><span className="panel-index">02</span><h3>Review themes</h3></div><span className="panel-meta">IN PROGRESS</span></div><div className="sentiment-tabs" role="tablist">{groups.map((item) => <span key={item.key} className={`sentiment-tab ${group === item.key ? 'active' : ''}`}>{item.title} <span>{item.label}</span></span>)}</div><div className="loading-panel-content"><span className="loading-status"><span className="loading-spinner" />{analysisProgress === 'generatingThemes' ? 'Generating review themes…' : analysisProgress === 'saving' ? 'Saving review themes…' : 'Collecting recent reviews…'}</span><div className="loading-lines theme-loading-lines" aria-hidden="true"><i /><i /><i /></div></div></section>
+            </div>
+          </section> : snapshot ? <section className="results" id="results" aria-live="polite">
+            <div className="results-head"><div><div className="section-kicker"><span className="live-pulse" /> MARKET SNAPSHOT <span className="demo-pill">{snapshot.isDemo ? 'ILLUSTRATIVE DATA' : 'LIVE APP LISTINGS'}</span></div><h2>{snapshot.idea.name}</h2><p className="results-sub">A first look at the apps closest to your idea and the themes in each app’s recent reviews.</p></div><button className="export-btn" onClick={() => void exportSummary()}>↓ <span>Export summary</span></button></div>
             <div className="summary-strip"><div className="summary-item"><span className="summary-icon green">⌕</span><div><strong>{snapshot.summary.similarAppCount}</strong><span>similar apps</span></div></div><div className="summary-divider" /><div className="summary-item"><span className="summary-icon violet">▤</span><div><strong>{snapshot.summary.reviewCountLabel}</strong><span>reviews scanned</span></div></div><div className="summary-divider" /><div className="summary-item"><span className="summary-icon amber">◎</span><div><strong>{snapshot.summary.sentimentGroupCount}</strong><span>sentiment groups</span></div></div></div>
             <div className="analysis-grid">
-              <section className="panel competitors-panel"><div className="panel-heading"><div><span className="panel-index">01</span><h3>Similar apps</h3></div><span className="panel-meta">TOP 10 MATCHES <span className="info">i</span></span></div><div className="competitor-list">{visibleCompetitors.map((app) => <div className="competitor-row" key={app.id}><div className="app-info"><strong>{app.url ? <a href={app.url} target="_blank" rel="noopener noreferrer">{app.name}</a> : app.name}</strong><span>{app.appSummary}</span></div></div>)}</div><button className="view-all" onClick={() => setShowAll((value) => !value)}>{showAll ? 'Show fewer competitors' : 'View all 10 competitors'} <span>{showAll ? '↑' : '→'}</span></button></section>
-              <section className="panel themes-panel"><div className="panel-heading"><div><span className="panel-index">02</span><h3>What reviewers say</h3></div><button className="sort-btn" onClick={() => toast('Themes are ordered by number of mentions.')}>Most mentioned⌄</button></div><div className="sentiment-tabs" role="tablist">{groups.map((item) => <button key={item.key} className={`sentiment-tab ${group === item.key ? 'active' : ''}`} role="tab" aria-selected={group === item.key} onClick={() => setGroup(item.key)}>{item.title} <span>{item.label}</span></button>)}</div><div className="theme-list">{currentThemes.map((theme) => <div className="theme-row" key={theme.id}><div className="theme-line"><strong className="theme-name">{theme.name}</strong><span className="theme-count">{formatMentions(theme.mentions)}</span></div><div className="theme-examples">{theme.example}</div></div>)}</div><div className="method-note"><span>✳</span><div><strong>How we find patterns</strong><p>Reviews are grouped by rating, then similar comments are clustered with KNN to find recurring themes.</p></div></div></section>
+              <section className="panel competitors-panel"><div className="panel-heading"><div><span className="panel-index">01</span><h3>Similar apps</h3></div><span className="panel-meta">{snapshot.summary.similarAppCount} APPS · SELECT AN APP</span></div><div className="competitor-list">{visibleCompetitors.map((app) => <div className={`competitor-row ${selectedCompetitorId === app.id ? 'selected' : ''}`} key={app.id}>{app.url ? <a className="competitor-name-link" href={app.url} target="_blank" rel="noopener noreferrer">{app.name}</a> : <strong className="competitor-name">{app.name}</strong>}<button type="button" className="competitor-select" aria-label={`Show review themes for ${app.name}`} aria-pressed={selectedCompetitorId === app.id} onClick={() => setSelectedCompetitorId(app.id)}><div className="app-info"><span>{app.appSummary}</span></div>{app.rating !== null && Number.isFinite(Number(app.rating)) && <span className="app-rating"><span className="star">★</span> {Number(app.rating).toFixed(1)}</span>}</button></div>)}</div><button className="view-all" onClick={() => setShowAll((value) => !value)}>{showAll ? 'Show fewer competitors' : 'View all competitors'} <span>{showAll ? '↑' : '→'}</span></button></section>
+            <section className="panel themes-panel"><div className="panel-heading"><div><span className="panel-index">02</span><h3>{selectedCompetitor ? `What ${selectedCompetitor.name} reviewers say` : 'What reviewers say'}</h3></div>{currentThemes.length > 0 && <button className="sort-btn" onClick={() => toast('Themes are ordered by number of mentions.')}>Most mentioned⌄</button>}</div><div className="sentiment-tabs" role="tablist">{groups.map((item) => <button key={item.key} className={`sentiment-tab ${group === item.key ? 'active' : ''}`} role="tab" aria-selected={group === item.key} onClick={() => setGroup(item.key)}>{item.title} <span>{item.label}</span></button>)}</div><div className="theme-list">{currentThemes.length ? currentThemes.map((theme) => <div className="theme-row" key={theme.id}><div className="theme-line"><strong className="theme-name">{theme.name}</strong><span className="theme-count">{formatMentions(theme.mentions)}</span></div><div className="theme-examples">{theme.example}</div></div>) : <p className="theme-examples">{snapshot?.hasUnassignedReviewThemes ? 'This older snapshot has review themes combined across apps. Re-analyze it to generate themes for each app.' : selectedCompetitor ? `No ${group} review themes are saved for ${selectedCompetitor.name} in this snapshot.` : 'Select an app to see its review themes.'}</p>}</div>{currentThemes.length > 0 && <div className="method-note"><span>✳</span><div><strong>How we find patterns</strong><p>Each app’s recent reviews are grouped by sentiment, embedded, and clustered by similarity. Each theme label summarizes its five centroid-nearest reviews.</p></div></div>}</section>
             </div>
             <section className="next-stage"><div className="next-icon">◈</div><div className="next-copy"><span className="section-kicker">COMING NEXT</span><h3>Go from market signals to real product proof.</h3><p>Check competitor features, then watch a phone agent explore the app and verify what’s actually there.</p></div><div className="stage-tags"><span>02 · Feature checks</span><span>03 · Phone agent</span></div><button className="notify-btn" onClick={() => setRoadmapOpen(true)}>Explore the roadmap <span>↗</span></button></section>
-            <footer className="results-footer"><span>Illustrative sample data · not live app-store research</span><span>Built for the curious <span className="footer-star">✳</span></span></footer>
+            <footer className="results-footer"><span>{snapshot.isDemo ? 'Illustrative sample data' : 'Live app listings and store ratings'} · app-specific review themes</span><span>Built for the curious <span className="footer-star">✳</span></span></footer>
           </section> : <section className="initial-state"><span className="initial-star">✳</span><div><strong>A little curiosity goes a long way.</strong><p>Start with your idea. We’ll help you see the market from your future customers’ point of view.</p></div><span className="initial-arrow">↗</span></section>}
           <footer className="page-footer"><span>FIELDNOTES <span className="footer-dot">·</span> YOUR IDEA DESERVES A CLOSER LOOK</span><span>Stage 1 MVP <span className="footer-dot">·</span> October 2026</span></footer>
         </div>}
