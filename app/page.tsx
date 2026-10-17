@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useState, type KeyboardEvent } from 'react';
 import { marketApi } from '@/lib/market-client';
 import type { HistoryEntry, MarketSnapshot, MarketUser, Sentiment } from '@/types/market';
 
@@ -48,8 +48,6 @@ export default function HomePage() {
   const [deletingIdeaId, setDeletingIdeaId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState('');
   const [historyError, setHistoryError] = useState('');
-  const [roadmapOpen, setRoadmapOpen] = useState(false);
-  const dialogRef = useRef<HTMLDialogElement>(null);
   const charCount = description.length;
 
   function toast(message: string) {
@@ -80,11 +78,6 @@ export default function HomePage() {
       setHistoryError('Could not load saved research. Start the app with its API server.');
     });
   }, []);
-
-  useEffect(() => {
-    if (roadmapOpen) dialogRef.current?.showModal();
-    else if (dialogRef.current?.open) dialogRef.current.close();
-  }, [roadmapOpen]);
 
   function showHome() {
     setPage('home');
@@ -316,7 +309,7 @@ export default function HomePage() {
           </div>
           <div className="stage-navigation" aria-label="Research stages">
             <button className="stage-nav-item current" onClick={showExplore}><span className="stage-nav-number">01</span><span className="stage-nav-copy"><strong>Explore the market</strong><small>Find similar apps and review patterns</small></span><span className="stage-nav-state">AVAILABLE <b>↗</b></span></button>
-            <button className="stage-nav-item upcoming" onClick={() => toast('This stage is planned for a future release.')}><span className="stage-nav-number">03</span><span className="stage-nav-copy"><strong>Verify in the app</strong><small>See a phone agent explore screens</small></span><span className="stage-nav-state">COMING SOON</span></button>
+            <button className="stage-nav-item upcoming" onClick={() => toast('This stage is planned for a future release.')}><span className="stage-nav-number">02</span><span className="stage-nav-copy"><strong>Verify in the app</strong><small>See a phone agent explore screens</small></span><span className="stage-nav-state">COMING SOON</span></button>
           </div>
           <div className="home-lower"><span>YOUR IDEA, BETTER INFORMED</span></div>
         </section> : <div className="stage-one-view">
@@ -350,15 +343,12 @@ export default function HomePage() {
               <section className="panel competitors-panel"><div className="panel-heading"><div><span className="panel-index">01</span><h3>Similar apps</h3></div><span className="panel-meta">{snapshot.summary.similarAppCount} APPS · SELECT AN APP</span></div><div className="competitor-list">{visibleCompetitors.map((app) => <div className={`competitor-row ${selectedCompetitorId === app.id ? 'selected' : ''}`} key={app.id}>{app.url ? <a className="competitor-name-link" href={app.url} target="_blank" rel="noopener noreferrer">{app.name}</a> : <strong className="competitor-name">{app.name}</strong>}<button type="button" className="competitor-select" aria-label={`Show review themes for ${app.name}`} aria-pressed={selectedCompetitorId === app.id} onClick={() => setSelectedCompetitorId(app.id)}><div className="app-info"><span>{app.appSummary}</span></div>{app.rating !== null && Number.isFinite(Number(app.rating)) && <span className="app-rating"><span className="star">★</span> {Number(app.rating).toFixed(1)}</span>}</button></div>)}</div><button className="view-all" onClick={() => setShowAll((value) => !value)}>{showAll ? 'Show fewer competitors' : 'View all competitors'} <span>{showAll ? '↑' : '→'}</span></button></section>
             <section className="panel themes-panel"><div className="panel-heading"><div><span className="panel-index">02</span><h3>{selectedCompetitor ? `What ${selectedCompetitor.name} reviewers say` : 'What reviewers say'}</h3></div></div><div className="sentiment-tabs" role="tablist">{groups.map((item) => <button key={item.key} className={`sentiment-tab ${group === item.key ? 'active' : ''}`} role="tab" aria-selected={group === item.key} onClick={() => setGroup(item.key)}>{item.title} <span>{item.label}</span></button>)}</div><div className="theme-list">{currentThemes.length ? currentThemes.map((theme) => <div className="theme-row" key={theme.id}><div className="theme-line"><strong className="theme-name">{theme.name}</strong><span className="theme-count">{formatMentions(theme.mentions)}</span></div><div className="theme-examples">{displayReviewText(theme.example)}</div></div>) : <p className="theme-examples">{snapshot?.hasUnassignedReviewThemes ? 'This older snapshot has review themes combined across apps. Re-analyze it to generate themes for each app.' : selectedCompetitor ? `No ${group} review themes are saved for ${selectedCompetitor.name} in this snapshot.` : 'Select an app to see its review themes.'}</p>}</div></section>
             </div>
-            <section className="next-stage"><div className="next-icon">◈</div><div className="next-copy"><span className="section-kicker">COMING NEXT</span><h3>Go from market signals to real product proof.</h3><p>Check competitor features, then watch a phone agent explore the app and verify what’s actually there.</p></div><div className="stage-tags"><span>02 · Feature checks</span><span>03 · Phone agent</span></div><button className="notify-btn" onClick={() => setRoadmapOpen(true)}>Explore the roadmap <span>↗</span></button></section>
-            <footer className="results-footer"><span>{snapshot.isDemo ? 'Illustrative sample data' : 'Live app listings and store ratings'} · app-specific review themes</span><span>Built for the curious <span className="footer-star">✳</span></span></footer>
           </section> : <section className="initial-state"><span className="initial-star">✳</span><div><strong>A little curiosity goes a long way.</strong><p>Start with your idea. We’ll help you see the market from your future customers’ point of view.</p></div><span className="initial-arrow">↗</span></section>}
           <footer className="page-footer"><span>MOBILE APP AGENT <span className="footer-dot">·</span> YOUR IDEA DESERVES A CLOSER LOOK</span></footer>
         </div>}
       </main>
 
       <div className={`toast ${toastMessage ? 'show' : ''}`} role="status">{toastMessage}</div>
-      <dialog ref={dialogRef} onClose={() => setRoadmapOpen(false)} onClick={(event) => { if (event.target === dialogRef.current) setRoadmapOpen(false); }}><button className="dialog-close" aria-label="Close" onClick={() => setRoadmapOpen(false)}>×</button><div className="dialog-mark">◈</div><div className="section-kicker">THE ROADMAP</div><h2>From insight to evidence.</h2><p>Feature checks and phone-agent evidence are planned next. This MVP demonstrates the first step with illustrative competitor and review data.</p><div className="roadmap-list"><div><b>02</b><span><strong>Feature checks</strong><small>Compare your feature list with app descriptions, docs, and reviews.</small></span><em>Planned</em></div><div><b>03</b><span><strong>Phone agent</strong><small>Explore competitor apps and capture evidence from real screens.</small></span><em>Planned</em></div></div><button className="dialog-done" onClick={() => setRoadmapOpen(false)}>Got it</button></dialog>
     </div>
   );
 }
