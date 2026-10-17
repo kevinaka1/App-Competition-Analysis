@@ -15,6 +15,7 @@ Open http://localhost:3000. The server reads `SUPABASE_URL` and `SUPABASE_SECRET
 
 - `GET /api/users` returns users from Supabase.
 - `GET /api/history?userId=...` returns that user's saved ideas and analyses.
+- `DELETE /api/ideas` accepts `{ "userId": "...", "ideaId": "..." }` and deletes the selected user's idea; related analyses, competitors, and themes are removed by the database foreign-key cascades.
 - `GET /api/snapshot?analysisId=...` returns the selected saved analysis, competitors, and review themes.
 - `POST /api/analyses` saves a new idea, its analysis counts, and its competitor records to Supabase. Re-analyzing an existing idea replaces its prior analysis snapshot. It uses the server-side Supabase secret and removes partial writes if a later insert fails.
 - `POST /api/similar-apps` accepts `{ "appDescription": "..." }` and returns `{ "suggestedAppName": "...", "apps": [...] }`. The apps array contains ten `{ name, appSummary, appleAppStoreUrl, googlePlayUrl }` competitors. `appSummary` is a short phrase of at most five words. Store URLs are `null` when a listing cannot be verified.

@@ -84,8 +84,8 @@ export async function POST(request: NextRequest) {
     const normalizedGroups = {} as Record<Sentiment, ReviewThemeInput[]>;
     for (const sentiment of SENTIMENTS) {
       const themes = groups[sentiment];
-      if (!Array.isArray(themes) || themes.length > 10) {
-        return NextResponse.json({ error: `reviewThemesByApp[${appIndex}].groups.${sentiment} must be an array of at most 10 themes.` }, { status: 400 });
+      if (!Array.isArray(themes) || themes.length < 3 || themes.length > 10) {
+        return NextResponse.json({ error: `reviewThemesByApp[${appIndex}].groups.${sentiment} must contain between 3 and 10 themes.` }, { status: 400 });
       }
       const normalized: ReviewThemeInput[] = [];
       for (const [themeIndex, themeValue] of themes.entries()) {
@@ -131,8 +131,8 @@ export async function POST(request: NextRequest) {
     if (!appleAppStoreUrl && !googlePlayUrl) {
       return NextResponse.json({ error: `apps[${index}] must have at least one store URL.` }, { status: 400 });
     }
-    if (rating !== null && (typeof rating !== 'number' || !Number.isFinite(rating) || rating < 0 || rating > 5)) {
-      return NextResponse.json({ error: `apps[${index}].averageUserRating must be from 0 to 5 or null.` }, { status: 400 });
+    if (typeof rating !== 'number' || !Number.isFinite(rating) || rating <= 0 || rating > 5) {
+      return NextResponse.json({ error: `apps[${index}].averageUserRating must be greater than 0 and at most 5.` }, { status: 400 });
     }
     if (reviewCount !== null && (!Number.isSafeInteger(reviewCount) || (reviewCount as number) < 0)) {
       return NextResponse.json({ error: `apps[${index}].reviewCount must be a non-negative integer or null.` }, { status: 400 });

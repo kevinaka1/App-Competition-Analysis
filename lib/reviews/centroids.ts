@@ -7,6 +7,7 @@ export interface ReviewClusterInput {
     sentiment: 'negative' | 'average' | 'positive';
     clusterId: number;
     mentions: number;
+    centroidReview: string;
     exampleReview: string;
     topReviews: string[];
 }
@@ -24,38 +25,40 @@ export async function clusterReviews(
     texts: string[],
     sentiment: ReviewClusterInput['sentiment'],
     requestedClusters = 3,
-    appIndex = 0
+    appIndex = 0,
+    displayTexts: string[] = texts
 ): Promise<ReviewClusterInput[]> {
-    const reviews = texts.map((text) => text.trim()).filter(Boolean);
+    const reviews = texts.map((text, index) => ({ text: text.trim(), displayText: (displayTexts[index] ?? text).trim() })).filter(({ text }) => Boolean(text));
     if (!reviews.length) return [];
 
     const clusterCount = Math.min(requestedClusters, reviews.length);
     if (reviews.length === 1) {
-        return [{ appIndex, sentiment, clusterId: 0, mentions: 1, exampleReview: reviews[0], topReviews: reviews }];
+        return [{ appIndex, sentiment, clusterId: 0, mentions: 1, centroidReview: reviews[0].text, exampleReview: reviews[0].displayText, topReviews: [reviews[0].text] }];
     }
 
     const embeddings = new OpenAIEmbeddings({
         model: 'text-embedding-3-small',
         batchSize: 128
     });
-    const vectors = await embeddings.embedDocuments(reviews);
+    const vectors = await embeddings.embedDocuments(reviews.map(({ text }) => text));
     const result = kmeans(vectors, clusterCount, { initialization: 'kmeans++' });
-    const grouped = Array.from({ length: clusterCount }, () => [] as Array<{ review: string; distance: number }>);
+    const grouped = Array.from({ length: clusterCount }, () => [] as Array<{ review: string; displayText: string; distance: number }>);
 
-    reviews.forEach((review, index) => {
+    reviews.forEach(({ text, displayText }, index) => {
         const clusterId = result.clusters[index];
-        grouped[clusterId].push({ review, distance: result.distance(vectors[index], result.centroids[clusterId]) });
+        grouped[clusterId].push({ review: text, displayText, distance: result.distance(vectors[index], result.centroids[clusterId]) });
     });
 
     return grouped.map((cluster, clusterId) => {
-        const closestReviews = [...cluster].sort((a, b) => a.distance - b.distance).slice(0, 5).map(({ review }) => review);
+        const closestReviews = [...cluster].sort((a, b) => a.distance - b.distance).slice(0, 5);
         return {
             appIndex,
             sentiment,
             clusterId,
             mentions: cluster.length,
-            exampleReview: closestReviews[0],
-            topReviews: closestReviews
+            centroidReview: closestReviews[0].review,
+            exampleReview: closestReviews[0].displayText,
+            topReviews: closestReviews.map(({ review }) => review)
         };
     }).filter((cluster) => cluster.mentions > 0);
 }
@@ -104,11 +107,11 @@ export async function summarizeReviewClusters(clusters: ReviewClusterInput[]): P
             },
             {
                 role: 'user',
-                content: JSON.stringify(clusters.map(({ appIndex, sentiment, clusterId, exampleReview, topReviews }) => ({
+                content: JSON.stringify(clusters.map(({ appIndex, sentiment, clusterId, centroidReview, topReviews }) => ({
                     appIndex,
                     sentiment,
                     clusterId,
-                    centroidReview: exampleReview,
+                    centroidReview,
                     closestReviews: topReviews
                 })))
             }

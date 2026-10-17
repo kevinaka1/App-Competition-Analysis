@@ -10,7 +10,7 @@ const SENTIMENTS: Sentiment[] = ['negative', 'average', 'positive'];
 const MAX_REVIEWS_PER_SENTIMENT = 500;
 const MAX_REVIEW_LENGTH = 5_000;
 
-type AppReviewInput = { appIndex: number; reviews: Record<Sentiment, string[]> };
+type AppReviewInput = { appIndex: number; reviews: Record<Sentiment, Array<{ text: string; displayText: string }>> };
 
 async function mapWithConcurrency<T, U>(items: T[], concurrency: number, mapper: (item: T) => Promise<U>): Promise<U[]> {
   const results = new Array<U>(items.length);
@@ -58,20 +58,32 @@ export async function POST(request: NextRequest) {
     const reviews = app.reviews as Record<string, unknown>;
     for (const sentiment of SENTIMENTS) {
       const group = reviews[sentiment];
-      if (!Array.isArray(group) || group.length > MAX_REVIEWS_PER_SENTIMENT || group.some((text) => typeof text !== 'string' || text.length > MAX_REVIEW_LENGTH)) {
+      if (!Array.isArray(group) || group.length > MAX_REVIEWS_PER_SENTIMENT || group.some((review) =>
+        typeof review !== 'object' || review === null ||
+        typeof (review as Record<string, unknown>).text !== 'string' ||
+        ((review as Record<string, unknown>).text as string).length > MAX_REVIEW_LENGTH ||
+        typeof (review as Record<string, unknown>).displayText !== 'string' ||
+        ((review as Record<string, unknown>).displayText as string).length > MAX_REVIEW_LENGTH
+      )) {
         return NextResponse.json({
-          error: `apps[${index}].reviews.${sentiment} must be an array of at most ${MAX_REVIEWS_PER_SENTIMENT} strings, each at most ${MAX_REVIEW_LENGTH} characters.`
+          error: `apps[${index}].reviews.${sentiment} must be an array of at most ${MAX_REVIEWS_PER_SENTIMENT} review objects with text and displayText fields.`
         }, { status: 400 });
       }
     }
-    apps.push({ appIndex: index, reviews: reviews as Record<Sentiment, string[]> });
+    apps.push({ appIndex: index, reviews: reviews as AppReviewInput['reviews'] });
   }
 
   try {
     // Keep each app independent and limit concurrent embedding/summary work.
     const result = await mapWithConcurrency(apps, 2, async ({ appIndex, reviews }) => {
       const clusterGroups = await Promise.all(SENTIMENTS.map((sentiment) =>
-        clusterReviews(reviews[sentiment], sentiment, clustersPerSentiment as number, appIndex)
+        clusterReviews(
+          reviews[sentiment].map((review) => review.text),
+          sentiment,
+          clustersPerSentiment as number,
+          appIndex,
+          reviews[sentiment].map((review) => review.displayText)
+        )
       ));
       const summaries = await summarizeReviewClusters(clusterGroups.flat());
       const groups = Object.fromEntries(SENTIMENTS.map((sentiment, index) => [

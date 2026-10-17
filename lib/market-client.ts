@@ -54,6 +54,13 @@ export const marketApi = {
     const query = new URLSearchParams({ userId });
     return (await request<{ history: HistoryEntry[] }>(`/api/history?${query}`)).history;
   },
+  async deleteIdea(userId: string, ideaId: string): Promise<void> {
+    await request<{ deleted: boolean; ideaId: string }>('/api/ideas', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, ideaId })
+    });
+  },
   async getSnapshot(analysisId: string): Promise<MarketSnapshot | null> {
     const query = new URLSearchParams({ analysisId });
     return (await request<{ snapshot: MarketSnapshot }>(`/api/snapshot?${query}`)).snapshot;
@@ -90,7 +97,10 @@ export const marketApi = {
           appIndex,
           reviews: Object.fromEntries(Object.entries(app.reviews).map(([sentiment, reviews]) => [
             sentiment,
-            reviews.map((review) => [review.title, review.text].filter(Boolean).join('\n'))
+            reviews.map((review) => ({
+              text: [review.title, review.text].filter(Boolean).join('\n').trim(),
+              displayText: review.text.trim()
+            }))
           ]))
         })),
         clustersPerSentiment: 5
