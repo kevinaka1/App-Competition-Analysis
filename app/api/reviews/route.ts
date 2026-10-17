@@ -71,7 +71,7 @@ function emptyGroups(): ReviewGroups {
 }
 
 function normalizeAppleReview(review: AppleStoreReview): ScrapedReview | null {
-  const text = review.text.trim();
+  const text = typeof review.text === 'string' ? review.text.trim() : '';
   if (!text || !sentimentForScore(review.score)) return null;
   return {
     id: review.id,
@@ -84,7 +84,7 @@ function normalizeAppleReview(review: AppleStoreReview): ScrapedReview | null {
 }
 
 function normalizeGoogleReview(review: GooglePlayReview): ScrapedReview | null {
-  const text = review.text.trim();
+  const text = typeof review.text === 'string' ? review.text.trim() : '';
   if (!text || !sentimentForScore(review.score)) return null;
   return {
     id: review.id,
