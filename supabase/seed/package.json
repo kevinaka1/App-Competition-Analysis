@@ -1,5 +1,5 @@
 {
-  "name": "mobile-app-agent-supabase-seed",
+  "name": "app-competition-analysis-supabase-seed",
   "private": true,
   "scripts": {
     "seed": "node seed.js"

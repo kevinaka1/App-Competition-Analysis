@@ -1,4 +1,4 @@
--- Core relational schema for Mobile App Agent.
+-- Core relational schema for App Competition Analysis.
 -- Every row receives a real UUID primary key. mock_id is an optional stable
 -- fixture key used to upsert seeded data and resolve mock foreign-key refs.
 -- When Supabase Auth is added, auth_user_id links a profile to auth.users.

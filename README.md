@@ -1,6 +1,6 @@
-# Mobile App Agent
+# App Competition Analysis
 
-Mobile App Agent helps founders explore the market around an app idea. It is built with Next.js App Router, React, TypeScript, and npm. The Supabase API is read-only: it loads saved ideas and analyses. The Explore Market form shows an unsaved fixture-backed preview until live analysis generation is implemented.
+App Competition Analysis helps founders explore the market around an app idea. It is built with Next.js App Router, React, TypeScript, and npm. The Supabase API is read-only: it loads saved ideas and analyses. The Explore Market form shows an unsaved fixture-backed preview until live analysis generation is implemented.
 
 ## Run locally
 

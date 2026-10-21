@@ -241,7 +241,7 @@ export default function HomePage() {
   async function exportSummary() {
     if (!snapshot) return;
     const lines = [
-      'Mobile App Agent — Market Snapshot',
+      'App Competition Analysis — Market Snapshot',
       'Illustrative sample data',
       '',
       `App idea: ${snapshot.idea.description}`,
@@ -259,7 +259,7 @@ export default function HomePage() {
     const blobUrl = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/plain' }));
     const link = document.createElement('a');
     link.href = blobUrl;
-    link.download = 'mobile-app-agent-market-snapshot.txt';
+    link.download = 'app-competition-analysis-market-snapshot.txt';
     link.click();
     URL.revokeObjectURL(blobUrl);
     toast('Your market snapshot is ready to download.');
@@ -272,9 +272,9 @@ export default function HomePage() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <a className="brand" href="#home" aria-label="Mobile App Agent home" onClick={(event) => { event.preventDefault(); showHome(); }}>
+        <a className="brand" href="#home" aria-label="App Competition Analysis home" onClick={(event) => { event.preventDefault(); showHome(); }}>
           <span className="brand-mark"><span /><span /><span /><span /></span>
-          <span>Mobile App Agent</span>
+          <span>App Competition Analysis</span>
         </a>
         <div className="workspace-label">WORKSPACE</div>
         <button className={`nav-item ${page === 'home' ? 'active' : ''}`} onClick={showHome}><span className="nav-icon">⌂</span><span>Home</span></button>
@@ -304,7 +304,7 @@ export default function HomePage() {
         {page === 'home' ? <section className="home-view">
           <div className="home-eyebrow"><span className="eyebrow-line" /> A CLEARER VIEW OF YOUR COMPETITION</div>
           <div className="home-hero">
-            <div className="home-copy"><h1>Build with a better<br /><em>read on the market.</em></h1><p>Mobile App Agent helps aspiring founders understand the apps already serving their idea. Explore competitors, learn what their users love and dislike, and find opportunities worth building for.</p><button className="home-cta" onClick={showExplore}>Start with your idea <span>↗</span></button><div className="home-footnote"><span>✳</span> Start with a description. Get a useful first look at the market.</div></div>
+            <div className="home-copy"><h1>Build with a better<br /><em>read on the market.</em></h1><p>App Competition Analysis helps aspiring founders understand the apps already serving their idea. Explore competitors, learn what their users love and dislike, and find opportunities worth building for.</p><button className="home-cta" onClick={showExplore}>Start with your idea <span>↗</span></button><div className="home-footnote"><span>✳</span> Start with a description. Get a useful first look at the market.</div></div>
             <div className="home-visual" aria-hidden="true"><div className="orbit orbit-one" /><div className="orbit orbit-two" /><div className="orbit-center"><span className="brand-mark"><span /><span /><span /><span /></span></div><div className="orbit-node node-one">✳</div><div className="orbit-node node-two">⌕</div><div className="orbit-node node-three">◈</div><div className="orbit-caption">IDEA → INSIGHT → EVIDENCE</div></div>
           </div>
           <div className="stage-navigation" aria-label="Research stages">
@@ -344,7 +344,7 @@ export default function HomePage() {
             <section className="panel themes-panel"><div className="panel-heading"><div><span className="panel-index">02</span><h3>{selectedCompetitor ? `What ${selectedCompetitor.name} reviewers say` : 'What reviewers say'}</h3></div></div><div className="sentiment-tabs" role="tablist">{groups.map((item) => <button key={item.key} className={`sentiment-tab ${group === item.key ? 'active' : ''}`} role="tab" aria-selected={group === item.key} onClick={() => setGroup(item.key)}>{item.title} <span>{item.label}</span></button>)}</div><div className="theme-list">{currentThemes.length ? currentThemes.map((theme) => <div className="theme-row" key={theme.id}><div className="theme-line"><strong className="theme-name">{theme.name}</strong><span className="theme-count">{formatMentions(theme.mentions)}</span></div><div className="theme-examples">{displayReviewText(theme.example)}</div></div>) : <p className="theme-examples">{snapshot?.hasUnassignedReviewThemes ? 'This older snapshot has review themes combined across apps. Re-analyze it to generate themes for each app.' : selectedCompetitor ? `No ${group} review themes are saved for ${selectedCompetitor.name} in this snapshot.` : 'Select an app to see its review themes.'}</p>}</div></section>
             </div>
           </section> : <section className="initial-state"><span className="initial-star">✳</span><div><strong>A little curiosity goes a long way.</strong><p>Start with your idea. We’ll help you see the market from your future customers’ point of view.</p></div><span className="initial-arrow">↗</span></section>}
-          <footer className="page-footer"><span>MOBILE APP AGENT <span className="footer-dot">·</span> YOUR IDEA DESERVES A CLOSER LOOK</span></footer>
+          <footer className="page-footer"><span>APP COMPETITION ANALYSIS <span className="footer-dot">·</span> YOUR IDEA DESERVES A CLOSER LOOK</span></footer>
         </div>}
       </main>
 

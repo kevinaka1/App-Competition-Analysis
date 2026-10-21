@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Mobile App Agent — Market research, made tangible',
+  title: 'App Competition Analysis — Market research, made tangible',
   description: 'Explore competitors and review patterns around your mobile app idea.'
 };
 
