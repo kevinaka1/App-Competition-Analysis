@@ -31,7 +31,6 @@ export interface ReviewCluster {
 }
 
 export interface CreateAnalysisInput {
-  userId: string;
   ideaId?: string;
   description: string;
   suggestedAppName: string;
@@ -47,18 +46,17 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const marketApi = {
-  async listUsers(): Promise<MarketUser[]> {
-    return (await request<{ users: MarketUser[] }>('/api/users')).users;
+  async getCurrentUser(): Promise<MarketUser> {
+    return (await request<{ user: MarketUser }>('/api/users')).user;
   },
-  async listHistory(userId: string): Promise<HistoryEntry[]> {
-    const query = new URLSearchParams({ userId });
-    return (await request<{ history: HistoryEntry[] }>(`/api/history?${query}`)).history;
+  async listHistory(): Promise<HistoryEntry[]> {
+    return (await request<{ history: HistoryEntry[] }>('/api/history')).history;
   },
-  async deleteIdea(userId: string, ideaId: string): Promise<void> {
+  async deleteIdea(ideaId: string): Promise<void> {
     await request<{ deleted: boolean; ideaId: string }>('/api/ideas', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, ideaId })
+      body: JSON.stringify({ ideaId })
     });
   },
   async getSnapshot(analysisId: string): Promise<MarketSnapshot | null> {

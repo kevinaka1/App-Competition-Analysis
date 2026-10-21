@@ -1,14 +1,13 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { getSupabase } from '@/lib/supabase';
+import { getAuthenticatedProfile } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
-const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-export async function GET(request: NextRequest) {
-  const userId = request.nextUrl.searchParams.get('userId')?.trim() ?? '';
-  if (!uuidPattern.test(userId)) return NextResponse.json({ error: 'A valid userId UUID query parameter is required.' }, { status: 400 });
-
+export async function GET() {
   try {
+    const auth = await getAuthenticatedProfile();
+    if (!auth) return NextResponse.json({ error: 'You must sign in to continue.' }, { status: 401 });
+    const userId = auth.profile.id;
     const supabase = getSupabase();
     const { data: ideas, error: ideasError } = await supabase.from('ideas').select('id,name,description,created_at').eq('user_id', userId);
     if (ideasError) throw ideasError;

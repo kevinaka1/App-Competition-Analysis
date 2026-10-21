@@ -1,6 +1,6 @@
 # App Competition Analysis
 
-App Competition Analysis helps founders explore the market around an app idea. It is built with Next.js App Router, React, TypeScript, and npm. The Supabase API is read-only: it loads saved ideas and analyses. The Explore Market form shows an unsaved fixture-backed preview until live analysis generation is implemented.
+App Competition Analysis helps founders explore the market around an app idea. It is built with Next.js App Router, React, TypeScript, and npm. Supabase Auth supports Google OAuth sign-in. Each signed-in account gets a profile row linked to its private research history.
 
 ## Run locally
 
@@ -9,21 +9,26 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000. The server reads `SUPABASE_URL` and `SUPABASE_SECRET_KEY` from `.env.local` or, as a fallback, `supabase/seed/.env`. Never expose the secret in browser code or commit either environment file.
+Copy `.env.example` to `.env.local`, then set the Supabase project URL and **publishable** key in the `NEXT_PUBLIC_` variables. The server also reads `SUPABASE_URL` and `SUPABASE_SECRET_KEY` (or `SUPABASE_SERVICE_ROLE_KEY`) for trusted database operations. Never put the secret key in a `NEXT_PUBLIC_` variable or commit either environment file. Open http://localhost:3000; signed-out visitors are sent to `/login`.
+
+## Authentication setup
+
+- In Supabase **Authentication → URL Configuration**, set the local Site URL to `http://localhost:3000` and add `http://localhost:3000/auth/callback` to the allowed redirect URLs. Add your deployed site and its `/auth/callback` URL there too.
+- In Supabase **Authentication → Sign In / Providers → Google**, enable Google and enter the OAuth client ID and secret from Google Cloud. Google Cloud's authorized redirect URI is the Supabase callback URL shown on that provider settings page (`https://<project-ref>.supabase.co/auth/v1/callback`).
+- The website currently offers Google sign-in only; it does not expose email/password sign-up.
+- Add `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` to local `.env.local` and the Vercel project. A legacy Supabase anon key can be used as the publishable key value. Keep `SUPABASE_SECRET_KEY` server-only.
 
 ## API routes
 
-- `GET /api/users` returns users from Supabase.
-- `GET /api/history?userId=...` returns that user's saved ideas and analyses.
-- `DELETE /api/ideas` accepts `{ "userId": "...", "ideaId": "..." }` and deletes the selected user's idea; related analyses, competitors, and themes are removed by the database foreign-key cascades.
-- `GET /api/snapshot?analysisId=...` returns the selected saved analysis, competitors, and review themes.
-- `POST /api/analyses` saves a new idea, its analysis counts, and its competitor records to Supabase. Re-analyzing an existing idea replaces its prior analysis snapshot. It uses the server-side Supabase secret and removes partial writes if a later insert fails.
+- `GET /api/users` returns the signed-in user's profile, creating it the first time if needed.
+- `GET /api/history` returns only the signed-in user's saved ideas and analyses.
+- `DELETE /api/ideas` accepts `{ "ideaId": "..." }` and deletes only the signed-in user's idea; related records are removed by database cascades.
+- `GET /api/snapshot?analysisId=...` returns a snapshot only when it belongs to the signed-in user.
+- `POST /api/analyses` saves a new idea, its analysis counts, and its competitor records under the signed-in user. Re-analyzing an existing idea replaces its prior analysis snapshot. It uses the server-side Supabase secret and removes partial writes if a later insert fails.
 - `POST /api/similar-apps` accepts `{ "appDescription": "..." }` and returns `{ "suggestedAppName": "...", "apps": [...] }`. The apps array contains ten `{ name, appSummary, appleAppStoreUrl, googlePlayUrl }` competitors. `appSummary` is a short phrase of at most five words. Store URLs are `null` when a listing cannot be verified.
 - `POST /api/app-metadata` accepts `{ "apps": [{ "name": "...", "appSummary": "...", "appleAppStoreUrl": "...", "googlePlayUrl": "..." }] }` and returns a combined rating (the higher store rating) and review count for each app. The review count averages Apple user ratings and Google Play ratings when both are available; otherwise it uses the available store count.
 
-The UI calls these routes for **Your Work** and saved snapshot details. `mockApis/market-data.ts` reads `mockData/market-fixtures.json` directly for the unsaved sample preview; it does not call Supabase.
-
-There is no write endpoint for creating analyses. The future generation flow will call an LLM and app-store APIs, then save those results. Until then, new idea previews do not modify history or the database.
+All app and API routes require a Supabase Auth session, except the login screen and OAuth callback. Research APIs derive ownership from that session rather than trusting a user ID supplied by the browser. `mockApis/market-data.ts` still reads `mockData/market-fixtures.json` for its fixture-backed sample preview.
 
 The similar-app route uses the OpenAI Responses API with web search and structured output. Configure `OPENAI_API_KEY` on the server; `OPENAI_MODEL` is optional and defaults to `gpt-5.5`. This endpoint only returns similar app listings; it does not persist analyses or collect reviews.
 
@@ -33,4 +38,4 @@ The similar-app route uses the OpenAI Responses API with web search and structur
 
 `mockData/market-fixtures.json` contains illustrative fixtures, including app-specific themes for every mock competitor. The JavaScript seed scripts under `supabase/seed/` use this same JSON file to seed users, ideas, analyses, competitors, and review themes in parent-first order. Keep the seed `.env` private.
 
-Schema migrations live in `supabase/migrations/`. For a hosted Supabase project, apply migrations with the Supabase CLI and run the seed script from `supabase/seed/` as described there. Configure `SUPABASE_URL` and `SUPABASE_SECRET_KEY` in Vercel project environment variables for deployed API routes.
+Schema migrations live in `supabase/migrations/`. For a hosted Supabase project, apply migrations with the Supabase CLI and run the seed script from `supabase/seed/` as described there. Configure the public Supabase URL/publishable key and server-only `SUPABASE_URL`/`SUPABASE_SECRET_KEY` in Vercel project environment variables.

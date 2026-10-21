@@ -133,8 +133,6 @@ h2 { margin: 13px 0 6px; color: #2c342d; font: 600 26px var(--display); letter-s
 .back-home { margin-top: 23px; padding: 0; border: 0; background: none; color: #7a8578; font: 11px var(--sans); cursor: pointer; } .back-home:hover { color: #345b3f; }
 @media (max-width: 1050px) { .home-view { padding-top: 42px; } .home-hero { min-height: 335px; grid-template-columns: 1.1fr .9fr; } .home-visual { width: 280px; } .stage-nav-item { padding: 15px 10px; gap: 7px; } .stage-nav-state { font-size: 7px; } }
 @media (max-width: 760px) { .home-view { min-height: calc(100vh - 54px); padding-top: 34px; } .home-hero { min-height: auto; grid-template-columns: 1fr; gap: 0; padding: 20px 0 15px; } .home-copy h1 { margin: 18px 0 13px; font-size: clamp(43px,10vw,58px); letter-spacing: -2.8px; } .home-copy p { font-size: 12px; line-height: 1.7; } .home-cta { margin-top: 19px; } .home-footnote { font-size: 9px; } .home-visual { width: 210px; margin: 1px auto 6px; } .orbit-center { width: 63px; height: 63px; border-radius: 19px; } .orbit-center .brand-mark { width: 27px; height: 27px; } .orbit-node { width: 31px; height: 31px; border-radius: 10px; font-size: 14px; } .stage-navigation { grid-template-columns: 1fr; } .stage-nav-item { min-height: 63px; padding: 11px 13px; border-right: 0; border-bottom: 1px solid #eceee8; } .stage-nav-item:last-child { border-bottom: 0; } .stage-nav-copy { gap: 3px; } .stage-nav-copy strong { font-size: 10px; } .stage-nav-copy small { font-size: 9px; } .stage-nav-state { font-size: 8px; } .home-lower { padding-top: 18px; font-size: 7px; } .back-home { margin-top: 15px; } }
-.demo-user-control { display: flex; align-items: center; gap: 7px; color: #9ba197; font: 8px 'DM Mono', monospace; letter-spacing: .7px; }
-.demo-user-control select { max-width: 145px; padding: 6px 22px 6px 8px; border: 1px solid #e1e4dd; border-radius: 5px; appearance: auto; background: #fff; color: #566158; font: 10px var(--sans); cursor: pointer; }
 .history-entry { width: 100%; padding: 2px 3px; display: flex; align-items: center; gap: 2px; border-radius: 5px; color: #72796f; }
 .history-entry:hover { background: #e7ebe4; color: #3f5942; }
 .history-entry.active { background: #e4eae0; color: #31543a; }
@@ -147,4 +145,31 @@ h2 { margin: 13px 0 6px; color: #2c342d; font: 600 26px var(--display); letter-s
 .delete-pending { font: 700 14px var(--sans); }
 .history-entry-text { min-width: 0; display: flex; flex-direction: column; gap: 3px; } .history-entry-text strong { overflow: hidden; color: inherit; font-size: 10px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .history-entry-text small { color: #9da399; font: 8px 'DM Mono', monospace; text-transform: capitalize; }
-@media (max-width: 760px) { .demo-user-control>span { display: none; } .demo-user-control select { max-width: 126px; } }
+.signed-in-label { max-width: 230px; overflow: hidden; color: #818980; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.signout-btn { padding: 7px 10px; border: 1px solid #e1e4dd; border-radius: 5px; background: #fff; color: #59645a; font: 10px var(--sans); cursor: pointer; }
+.signout-btn:hover { border-color: #cdd7cb; color: #345b3f; }
+.auth-shell { min-height: 100vh; padding: 35px 20px 22px; display: flex; flex-direction: column; align-items: center; justify-content: center; background: radial-gradient(ellipse at 50% 0%, #edf2e9 0%, var(--paper) 58%); }
+.auth-card { width: min(100%, 430px); padding: 34px 38px 29px; border: 1px solid #e6e8e2; border-radius: 12px; background: #fff; box-shadow: 0 16px 50px #2631210b; }
+.auth-brand { display: inline-flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; font: 800 13px var(--display); letter-spacing: -.3px; }
+.auth-brand .brand-mark { width: 24px; height: 24px; flex-basis: 24px; }
+.auth-eyebrow { margin-top: 41px; color: #788176; font: 500 9px 'DM Mono', monospace; letter-spacing: 1.1px; }
+.auth-card h1 { margin: 12px 0 8px; font-size: 34px; letter-spacing: -1.7px; }
+.auth-description { margin: 0; color: #7b8279; font-size: 12px; line-height: 1.6; }
+.google-signin { width: 100%; height: 44px; margin-top: 25px; display: flex; align-items: center; justify-content: center; gap: 10px; border: 1px solid #dfe3dc; border-radius: 6px; background: #fff; color: #384139; font: 600 12px var(--sans); cursor: pointer; }
+.google-signin:hover { background: #f9faf8; border-color: #cdd6ca; }
+.google-mark { width: 17px; height: 17px; }
+.auth-divider { margin: 20px 0 18px; display: flex; align-items: center; gap: 12px; color: #a0a69d; font-size: 10px; }
+.auth-divider::before, .auth-divider::after { height: 1px; flex: 1; background: #eceee9; content: ''; }
+.auth-form { display: flex; flex-direction: column; }
+.auth-form label { margin: 0 0 7px; color: #545e54; font: 600 10px var(--sans); }
+.auth-form input { width: 100%; height: 42px; margin-bottom: 15px; padding: 0 12px; border: 1px solid #e2e5df; border-radius: 5px; outline: 0; background: #fff; color: #303830; font: 12px var(--sans); }
+.auth-form input:focus { border-color: #88a18a; box-shadow: 0 0 0 3px #e8f0e7; }
+.auth-form input::placeholder { color: #b0b5ad; }
+.auth-submit { height: 43px; margin-top: 3px; padding: 0 14px; display: flex; align-items: center; justify-content: space-between; border: 0; border-radius: 5px; background: #345b3f; color: white; font: 600 12px var(--sans); cursor: pointer; }
+.auth-submit:hover { background: #274a32; }
+.auth-submit:disabled, .google-signin:disabled { opacity: .62; cursor: wait; }
+.auth-message { margin: -1px 0 13px; color: #9a573f; font-size: 11px; line-height: 1.5; }
+.auth-switch { margin: 21px 0 0; color: #838a81; text-align: center; font-size: 10px; }
+.auth-switch button { padding: 0; border: 0; background: transparent; color: #426c4a; font: 700 10px var(--sans); cursor: pointer; }
+.auth-footer { margin: 18px 0 0; color: #9ca39a; font: 9px 'DM Mono', monospace; letter-spacing: .3px; }
+@media (max-width: 480px) { .auth-shell { padding: 20px 14px; } .auth-card { padding: 27px 22px 23px; } .auth-eyebrow { margin-top: 34px; } .auth-card h1 { font-size: 30px; } .signed-in-label { max-width: 120px; } }

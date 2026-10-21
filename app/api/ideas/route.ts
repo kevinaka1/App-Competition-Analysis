@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabase } from '@/lib/supabase';
+import { getAuthenticatedProfile } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,21 +15,21 @@ export async function DELETE(request: NextRequest) {
   }
 
   if (typeof payload !== 'object' || payload === null) {
-    return NextResponse.json({ error: 'Request body must include ideaId and userId.' }, { status: 400 });
+    return NextResponse.json({ error: 'Request body must include ideaId.' }, { status: 400 });
   }
 
   const body = payload as Record<string, unknown>;
   const ideaId = typeof body.ideaId === 'string' ? body.ideaId.trim() : '';
-  const userId = typeof body.userId === 'string' ? body.userId.trim() : '';
   if (!uuidPattern.test(ideaId)) return NextResponse.json({ error: 'A valid ideaId UUID is required.' }, { status: 400 });
-  if (!uuidPattern.test(userId)) return NextResponse.json({ error: 'A valid userId UUID is required.' }, { status: 400 });
 
   try {
+    const auth = await getAuthenticatedProfile();
+    if (!auth) return NextResponse.json({ error: 'You must sign in to continue.' }, { status: 401 });
     const { data, error } = await getSupabase()
       .from('ideas')
       .delete()
       .eq('id', ideaId)
-      .eq('user_id', userId)
+      .eq('user_id', auth.profile.id)
       .select('id')
       .maybeSingle();
     if (error) throw error;

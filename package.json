@@ -12,6 +12,7 @@
     "@langchain/openai": "^1.6.2",
     "@mradex77/google-play-scraper": "^1.4.0",
     "@perttu/app-store-scraper": "^2.1.0",
+    "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "2.117.2",
     "dotenv": "16.6.1",
     "ml-kmeans": "^7.0.1",

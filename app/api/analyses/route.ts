@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabase } from '@/lib/supabase';
+import { getAuthenticatedProfile } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,11 +53,15 @@ export async function POST(request: NextRequest) {
   }
 
   const body = payload as Record<string, unknown>;
-  const userId = typeof body.userId === 'string' ? body.userId.trim() : '';
+  const auth = await getAuthenticatedProfile().catch((error) => {
+    console.error('Could not resolve the signed-in user.', error);
+    return null;
+  });
+  if (!auth) return NextResponse.json({ error: 'You must sign in to continue.' }, { status: 401 });
+  const userId = auth.profile.id;
   const existingIdeaId = typeof body.ideaId === 'string' ? body.ideaId.trim() : '';
   const description = typeof body.description === 'string' ? body.description.trim() : '';
   const suggestedAppName = typeof body.suggestedAppName === 'string' ? body.suggestedAppName.trim() : '';
-  if (!uuidPattern.test(userId)) return NextResponse.json({ error: 'A valid userId UUID is required.' }, { status: 400 });
   if (existingIdeaId && !uuidPattern.test(existingIdeaId)) return NextResponse.json({ error: 'ideaId must be a valid UUID.' }, { status: 400 });
   if (description.length < 15 || description.length > 500) {
     return NextResponse.json({ error: 'description must be between 15 and 500 characters.' }, { status: 400 });

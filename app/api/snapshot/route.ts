@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabase } from '@/lib/supabase';
+import { getAuthenticatedProfile } from '@/lib/auth';
 import type { Sentiment } from '@/types/market';
 
 export const dynamic = 'force-dynamic';
@@ -14,6 +15,8 @@ export async function GET(request: NextRequest) {
   if (!uuidPattern.test(analysisId)) return NextResponse.json({ error: 'A valid analysisId UUID query parameter is required.' }, { status: 400 });
 
   try {
+    const auth = await getAuthenticatedProfile();
+    if (!auth) return NextResponse.json({ error: 'You must sign in to continue.' }, { status: 401 });
     const supabase = getSupabase();
     const { data: analysis, error: analysisError } = await supabase.from('analyses')
       .select('id,mock_id,idea_id,similar_app_count,reviews_scanned_count,sentiment_group_count,created_at').eq('id', analysisId).maybeSingle();
@@ -26,6 +29,9 @@ export async function GET(request: NextRequest) {
       supabase.from('review_themes').select('id,analysis_competitor_id,sentiment,summary,example_review,mentions').eq('analysis_id', analysis.id).order('mentions', { ascending: false })
     ]);
     if (ideaResult.error) throw ideaResult.error;
+    if (ideaResult.data.user_id !== auth.profile.id) {
+      return NextResponse.json({ error: 'That saved market snapshot was not found.' }, { status: 404 });
+    }
     if (competitorResult.error) throw competitorResult.error;
     if (themeResult.error) throw themeResult.error;
 

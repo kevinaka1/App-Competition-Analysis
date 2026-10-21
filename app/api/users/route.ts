@@ -1,15 +1,15 @@
 import { NextResponse } from 'next/server';
-import { getSupabase } from '@/lib/supabase';
+import { getAuthenticatedProfile } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    const { data, error } = await getSupabase().from('users').select('id,name,email,initials').order('name', { ascending: true });
-    if (error) throw error;
-    return NextResponse.json({ users: data });
+    const result = await getAuthenticatedProfile();
+    if (!result) return NextResponse.json({ error: 'You must sign in to continue.' }, { status: 401 });
+    return NextResponse.json({ user: { ...result.profile, email: result.profile.email ?? '' } });
   } catch (error) {
-    console.error('Could not load users from Supabase.', error);
-    return NextResponse.json({ error: 'Could not load users from Supabase.' }, { status: 500 });
+    console.error('Could not load the signed-in profile.', error);
+    return NextResponse.json({ error: 'Could not load your account profile.' }, { status: 500 });
   }
 }

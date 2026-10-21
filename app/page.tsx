@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type KeyboardEvent } from 'react';
 import { marketApi } from '@/lib/market-client';
+import { createSupabaseBrowserClient } from '@/lib/supabase/client';
 import type { HistoryEntry, MarketSnapshot, MarketUser, Sentiment } from '@/types/market';
 
 const groups: Array<{ key: Sentiment; title: string; label: string }> = [
@@ -34,15 +35,15 @@ function displayReviewText(example: string): string {
 }
 
 export default function HomePage() {
-  const [users, setUsers] = useState<MarketUser[]>([]);
   const [currentUserId, setCurrentUserId] = useState('');
+  const [currentUser, setCurrentUser] = useState<MarketUser | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
-  const [description, setDescription] = useState('An app that helps people plan meals around what’s already in their fridge, with recipes that adapt to dietary needs.');
+  const [description, setDescription] = useState('');
   const [snapshot, setSnapshot] = useState<MarketSnapshot | null>(null);
   const [selectedCompetitorId, setSelectedCompetitorId] = useState<string | null>(null);
   const [group, setGroup] = useState<Sentiment>('positive');
   const [showAll, setShowAll] = useState(false);
-  const [page, setPage] = useState<'home' | 'explore'>('home');
+  const [page, setPage] = useState<'home' | 'explore'>('explore');
   const [loading, setLoading] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState<AnalysisProgress | null>(null);
   const [deletingIdeaId, setDeletingIdeaId] = useState<string | null>(null);
@@ -55,10 +56,10 @@ export default function HomePage() {
     window.setTimeout(() => setToastMessage(''), 2600);
   }
 
-  async function loadHistory(userId: string) {
+  async function loadHistory() {
     try {
       setHistoryError('');
-      setHistory(await marketApi.listHistory(userId));
+      setHistory(await marketApi.listHistory());
     } catch (error) {
       console.error('Could not load saved research:', error);
       setHistoryError('Could not load saved research. Start the app with its API server.');
@@ -67,12 +68,11 @@ export default function HomePage() {
   }
 
   useEffect(() => {
-    marketApi.listUsers().then(async (list) => {
-      setUsers(list);
-      if (list[0]) {
-        setCurrentUserId(list[0].id);
-        await loadHistory(list[0].id);
-      }
+    marketApi.getCurrentUser().then(async (user) => {
+      setCurrentUser(user);
+      setCurrentUserId(user.id);
+      if (new URLSearchParams(window.location.search).get('view') === 'explore') setPage('explore');
+      await loadHistory();
     }).catch((error: unknown) => {
       console.error('Could not initialize market APIs:', error);
       setHistoryError('Could not load saved research. Start the app with its API server.');
@@ -109,14 +109,6 @@ export default function HomePage() {
     window.setTimeout(() => document.getElementById('results')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
   }
 
-  async function selectUser(userId: string) {
-    setCurrentUserId(userId);
-    setSnapshot(null);
-    setDescription('');
-    await loadHistory(userId);
-    showHome();
-  }
-
   async function openHistory(entry: HistoryEntry) {
     try {
       showSnapshot(await marketApi.getSnapshot(entry.analysisId));
@@ -130,7 +122,7 @@ export default function HomePage() {
     if (!window.confirm(`Delete “${entry.name}” and its saved market snapshot? This cannot be undone.`)) return;
     setDeletingIdeaId(entry.ideaId);
     try {
-      await marketApi.deleteIdea(currentUserId, entry.ideaId);
+      await marketApi.deleteIdea(entry.ideaId);
       setHistory((current) => current.filter((item) => item.ideaId !== entry.ideaId));
       if (snapshot?.idea.id === entry.ideaId) {
         setSnapshot(null);
@@ -146,6 +138,11 @@ export default function HomePage() {
     }
   }
 
+  async function signOut() {
+    await createSupabaseBrowserClient().auth.signOut();
+    window.location.assign('/login');
+  }
+
   async function analyze() {
     const text = description.trim();
     if (text.length < 15) {
@@ -157,7 +154,7 @@ export default function HomePage() {
       return;
     }
     if (!currentUserId) {
-      toast('Select a user before saving this analysis.');
+      toast('Your account is still loading. Please try again in a moment.');
       return;
     }
     setLoading(true);
@@ -214,14 +211,13 @@ export default function HomePage() {
       })));
       setAnalysisProgress('saving');
       const saved = await marketApi.createAnalysis({
-        userId: currentUserId,
         ideaId: snapshot?.idea.description === text ? snapshot.idea.id : undefined,
         description: text,
         suggestedAppName: similarApps.suggestedAppName,
         apps: appsToSave,
         reviewThemesByApp
       });
-      await loadHistory(currentUserId);
+      await loadHistory();
       const savedSnapshot = await marketApi.getSnapshot(saved.analysisId);
       if (!savedSnapshot) throw new Error('The analysis was saved, but its snapshot could not be loaded.');
       showSnapshot(savedSnapshot);
@@ -265,7 +261,6 @@ export default function HomePage() {
     toast('Your market snapshot is ready to download.');
   }
 
-  const currentUser = users.find((user) => user.id === currentUserId);
   const visibleCompetitors = snapshot ? (showAll ? snapshot.competitors : snapshot.competitors.slice(0, 5)) : [];
   const selectedCompetitor = snapshot?.competitors.find((app) => app.id === selectedCompetitorId) ?? null;
   const currentThemes = selectedCompetitor?.reviewThemes[group] ?? [];
@@ -294,12 +289,12 @@ export default function HomePage() {
           )) : <div className="empty-history">{currentUserId ? 'No research yet. Start with an idea.' : 'Your research will show up here.'}</div>}
         </div>
         <div className="sidebar-bottom">
-          <div className="avatar">{currentUser?.initials ?? '—'}</div><div className="profile"><strong>{currentUser?.name ?? 'Loading user'}</strong><span>Demo account</span></div><button className="more-btn" aria-label="More options">···</button>
+          <div className="avatar">{currentUser?.initials ?? '—'}</div><div className="profile"><strong>{currentUser?.name ?? 'Loading user'}</strong><span>{currentUser?.email ?? 'Signed in'}</span></div><button className="more-btn" aria-label="Sign out" title="Sign out" onClick={() => void signOut()}>↪</button>
         </div>
       </aside>
 
       <main id="top" className="main-content">
-        <header className="topbar"><div className="breadcrumb">Workspace <span>/</span> <strong>{snapshot?.idea.name ?? (page === 'home' ? 'Home' : 'Stage 1 · Explore the market')}</strong></div><div className="topbar-right"><label className="demo-user-control"><span>DEMO USER</span><select aria-label="Switch demo user" value={currentUserId} onChange={(event) => void selectUser(event.target.value)}>{users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select></label><button className="help-btn" aria-label="About this demo" title="This MVP uses illustrative data">?</button></div></header>
+        <header className="topbar"><div className="breadcrumb">Workspace <span>/</span> <strong>{snapshot?.idea.name ?? (page === 'home' ? 'Home' : 'Stage 1 · Explore the market')}</strong></div><div className="topbar-right"><span className="signed-in-label">{currentUser?.email}</span><button className="signout-btn" onClick={() => void signOut()}>Sign out</button></div></header>
 
         {page === 'home' ? <section className="home-view">
           <div className="home-eyebrow"><span className="eyebrow-line" /> A CLEARER VIEW OF YOUR COMPETITION</div>
