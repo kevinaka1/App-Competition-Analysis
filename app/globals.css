@@ -9,9 +9,9 @@ body { margin: 0; background: var(--paper); color: var(--ink); font: 14px var(--
 :where([hidden]) { display: none !important; }
 .app-shell { min-height: 100vh; }
 .sidebar { position: fixed; inset: 0 auto 0 0; z-index: 2; width: 238px; padding: 27px 17px; display: flex; flex-direction: column; background: #f0f1ec; border-right: 1px solid #e7e8e2; }
-.brand { display: flex; align-items: center; gap: 11px; margin: 0 0 56px; padding: 0 10px; color: var(--ink); text-decoration: none; font: 800 16px var(--display); letter-spacing: -.6px; white-space: nowrap; }
+.brand { display: flex; align-items: center; gap: 11px; margin: 0 0 56px; padding: 0 10px; color: var(--ink); text-decoration: none; font: 800 14px/1.15 var(--display); letter-spacing: -.4px; }
 .brand-dot { color: var(--orange); }
-.brand-mark { width: 26px; height: 26px; display: grid; grid-template: 1fr 1fr / 1fr 1fr; gap: 3px; transform: rotate(-8deg); }
+.brand-mark { width: 26px; height: 26px; flex: 0 0 26px; display: grid; grid-template: 1fr 1fr / 1fr 1fr; gap: 3px; transform: rotate(-8deg); }
 .brand-mark span { background: #335b3f; border-radius: 3px; }
 .brand-mark span:nth-child(2) { background: #709878; } .brand-mark span:nth-child(3) { background: #aec7aa; } .brand-mark span:nth-child(4) { background: #df8964; }
 .workspace-label { padding: 0 11px 10px; color: #989d95; font: 500 9px 'DM Mono', monospace; letter-spacing: 1.3px; }
