@@ -46,8 +46,8 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const marketApi = {
-  async getCurrentUser(): Promise<MarketUser> {
-    return (await request<{ user: MarketUser }>('/api/users')).user;
+  async getCurrentUser(): Promise<MarketUser | null> {
+    return (await request<{ user: MarketUser | null }>('/api/users')).user;
   },
   async listHistory(): Promise<HistoryEntry[]> {
     return (await request<{ history: HistoryEntry[] }>('/api/history')).history;

@@ -148,6 +148,11 @@ h2 { margin: 13px 0 6px; color: #2c342d; font: 600 26px var(--display); letter-s
 .signed-in-label { max-width: 230px; overflow: hidden; color: #818980; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .signout-btn { padding: 7px 10px; border: 1px solid #e1e4dd; border-radius: 5px; background: #fff; color: #59645a; font: 10px var(--sans); cursor: pointer; }
 .signout-btn:hover { border-color: #cdd7cb; color: #345b3f; }
+.auth-nav-cta { display: inline-flex; align-items: center; text-decoration: none; }
+.empty-history a { margin-top: 8px; display: inline-flex; color: #456d4d; font-size: 10px; font-weight: 600; text-decoration: none; }
+.empty-history a:hover { text-decoration: underline; }
+.sidebar-auth-cta { width: 100%; padding: 10px 11px; display: flex; align-items: center; justify-content: space-between; border: 1px solid #dfe5dc; border-radius: 6px; background: #f8faf7; color: #405f45; font-size: 10px; font-weight: 600; text-decoration: none; }
+.sidebar-auth-cta:hover { border-color: #cdd9ca; background: #f1f5ef; }
 .auth-shell { min-height: 100vh; padding: 35px 20px 22px; display: flex; flex-direction: column; align-items: center; justify-content: center; background: radial-gradient(ellipse at 50% 0%, #edf2e9 0%, var(--paper) 58%); }
 .auth-card { width: min(100%, 430px); padding: 34px 38px 29px; border: 1px solid #e6e8e2; border-radius: 12px; background: #fff; box-shadow: 0 16px 50px #2631210b; }
 .auth-brand { display: inline-flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; font: 800 13px var(--display); letter-spacing: -.3px; }
@@ -173,3 +178,4 @@ h2 { margin: 13px 0 6px; color: #2c342d; font: 600 26px var(--display); letter-s
 .auth-switch button { padding: 0; border: 0; background: transparent; color: #426c4a; font: 700 10px var(--sans); cursor: pointer; }
 .auth-footer { margin: 18px 0 0; color: #9ca39a; font: 9px 'DM Mono', monospace; letter-spacing: .3px; }
 @media (max-width: 480px) { .auth-shell { padding: 20px 14px; } .auth-card { padding: 27px 22px 23px; } .auth-eyebrow { margin-top: 34px; } .auth-card h1 { font-size: 30px; } .signed-in-label { max-width: 120px; } }
+@media (max-width: 760px) { .sidebar-auth-cta { justify-content: center; padding: 9px 4px; font-size: 0; } .sidebar-auth-cta span { font-size: 13px; } }

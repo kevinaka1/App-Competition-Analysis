@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type KeyboardEvent } from 'react';
-import { marketApi } from '@/lib/market-client';
+import { marketApi, type AppMetadataResult, type ReviewCluster } from '@/lib/market-client';
 import { createSupabaseBrowserClient } from '@/lib/supabase/client';
 import type { HistoryEntry, MarketSnapshot, MarketUser, Sentiment } from '@/types/market';
 
@@ -34,16 +34,77 @@ function displayReviewText(example: string): string {
   return example.trim();
 }
 
+function createTemporarySnapshot(
+  description: string,
+  suggestedAppName: string,
+  apps: AppMetadataResult[],
+  themesByApp: Array<{ appIndex: number; groups: Record<Sentiment, ReviewCluster[]> }>
+): MarketSnapshot {
+  const createdAt = new Date().toISOString();
+  const ideaId = `temporary-${crypto.randomUUID()}`;
+  const reviewCount = themesByApp.reduce((total, { groups: themes }) => total +
+    (['positive', 'average', 'negative'] as Sentiment[]).reduce((groupTotal, sentiment) => groupTotal +
+      themes[sentiment].reduce((themeTotal, theme) => themeTotal + theme.mentions, 0), 0), 0);
+  const sentimentGroupCount = (['positive', 'average', 'negative'] as Sentiment[])
+    .filter((sentiment) => themesByApp.some(({ groups: themes }) => themes[sentiment].length > 0)).length;
+  const reviewCountLabel = reviewCount >= 1000
+    ? `${(reviewCount / 1000).toFixed(1).replace(/\.0$/, '')}k`
+    : String(reviewCount);
+
+  return {
+    idea: { id: ideaId, userId: '', name: suggestedAppName, description, createdAt },
+    analysis: {
+      id: `temporary-${crypto.randomUUID()}`,
+      ideaId,
+      similarAppCount: apps.length,
+      reviewsScannedCount: reviewCount,
+      sentimentGroupCount,
+      createdAt
+    },
+    competitors: apps.map((app, appIndex) => {
+      const appThemes = themesByApp.find((entry) => entry.appIndex === appIndex)?.groups;
+      const reviewThemes = {} as MarketSnapshot['competitors'][number]['reviewThemes'];
+      for (const sentiment of ['positive', 'average', 'negative'] as Sentiment[]) {
+        reviewThemes[sentiment] = (appThemes?.[sentiment] ?? []).map((theme) => ({
+          id: `temporary-${appIndex}-${sentiment}-${theme.clusterId}`,
+          name: theme.summary,
+          example: theme.exampleReview,
+          mentions: theme.mentions
+        }));
+      }
+      return {
+        id: `temporary-${appIndex}-${crypto.randomUUID()}`,
+        name: app.name,
+        appSummary: app.appSummary,
+        url: app.appleAppStoreUrl ?? app.googlePlayUrl,
+        rating: app.averageUserRating,
+        similarityPercent: null,
+        reviewThemes
+      };
+    }),
+    hasUnassignedReviewThemes: false,
+    summary: {
+      similarAppCount: apps.length,
+      reviewsScannedCount: reviewCount,
+      reviewCountLabel,
+      sentimentGroupCount
+    },
+    isDemo: false,
+    isTemporary: true
+  };
+}
+
 export default function HomePage() {
-  const [currentUserId, setCurrentUserId] = useState('');
   const [currentUser, setCurrentUser] = useState<MarketUser | null>(null);
+  const [authReady, setAuthReady] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [guestSnapshots, setGuestSnapshots] = useState<MarketSnapshot[]>([]);
   const [description, setDescription] = useState('');
   const [snapshot, setSnapshot] = useState<MarketSnapshot | null>(null);
   const [selectedCompetitorId, setSelectedCompetitorId] = useState<string | null>(null);
   const [group, setGroup] = useState<Sentiment>('positive');
   const [showAll, setShowAll] = useState(false);
-  const [page, setPage] = useState<'home' | 'explore'>('explore');
+  const [page, setPage] = useState<'home' | 'explore'>('home');
   const [loading, setLoading] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState<AnalysisProgress | null>(null);
   const [deletingIdeaId, setDeletingIdeaId] = useState<string | null>(null);
@@ -68,15 +129,18 @@ export default function HomePage() {
   }
 
   useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('view') === 'explore') setPage('explore');
     marketApi.getCurrentUser().then(async (user) => {
       setCurrentUser(user);
-      setCurrentUserId(user.id);
-      if (new URLSearchParams(window.location.search).get('view') === 'explore') setPage('explore');
-      await loadHistory();
+      if (user) await loadHistory();
+      else {
+        setHistory([]);
+        setHistoryError('');
+      }
     }).catch((error: unknown) => {
       console.error('Could not initialize market APIs:', error);
-      setHistoryError('Could not load saved research. Start the app with its API server.');
-    });
+      setHistoryError('Account status could not be loaded. You can still explore as a guest.');
+    }).finally(() => setAuthReady(true));
   }, []);
 
   function showHome() {
@@ -138,9 +202,18 @@ export default function HomePage() {
     }
   }
 
+  function removeGuestSnapshot(analysisId: string) {
+    setGuestSnapshots((current) => current.filter((entry) => entry.analysis.id !== analysisId));
+    if (snapshot?.analysis.id === analysisId) {
+      setSnapshot(null);
+      setSelectedCompetitorId(null);
+      setDescription('');
+    }
+  }
+
   async function signOut() {
     await createSupabaseBrowserClient().auth.signOut();
-    window.location.assign('/login');
+    window.location.assign('/');
   }
 
   async function analyze() {
@@ -153,8 +226,8 @@ export default function HomePage() {
       toast('Please keep your idea under 500 characters.');
       return;
     }
-    if (!currentUserId) {
-      toast('Your account is still loading. Please try again in a moment.');
+    if (!authReady) {
+      toast('Checking your sign-in status. Please try again in a moment.');
       return;
     }
     setLoading(true);
@@ -209,18 +282,25 @@ export default function HomePage() {
           clusters.map(({ summary, mentions }) => ({ summary, mentions }))
         ]))
       })));
-      setAnalysisProgress('saving');
-      const saved = await marketApi.createAnalysis({
-        ideaId: snapshot?.idea.description === text ? snapshot.idea.id : undefined,
-        description: text,
-        suggestedAppName: similarApps.suggestedAppName,
-        apps: appsToSave,
-        reviewThemesByApp
-      });
-      await loadHistory();
-      const savedSnapshot = await marketApi.getSnapshot(saved.analysisId);
-      if (!savedSnapshot) throw new Error('The analysis was saved, but its snapshot could not be loaded.');
-      showSnapshot(savedSnapshot);
+      if (currentUser) {
+        setAnalysisProgress('saving');
+        const saved = await marketApi.createAnalysis({
+          ideaId: snapshot && !snapshot.isTemporary && snapshot.idea.description === text ? snapshot.idea.id : undefined,
+          description: text,
+          suggestedAppName: similarApps.suggestedAppName,
+          apps: appsToSave,
+          reviewThemesByApp
+        });
+        await loadHistory();
+        const savedSnapshot = await marketApi.getSnapshot(saved.analysisId);
+        if (!savedSnapshot) throw new Error('The analysis was saved, but its snapshot could not be loaded.');
+        showSnapshot(savedSnapshot);
+      } else {
+        const temporarySnapshot = createTemporarySnapshot(text, similarApps.suggestedAppName, appsToSave, reviewThemesByApp);
+        setGuestSnapshots((current) => [temporarySnapshot, ...current]);
+        showSnapshot(temporarySnapshot);
+        toast('Temporary snapshot ready. Sign up or log in to save future analyses.');
+      }
     } catch (error) {
       console.error('Market analysis failed:', error);
       toast(error instanceof Error ? error.message : 'We could not analyze the market. Please try again.');
@@ -277,7 +357,7 @@ export default function HomePage() {
         <div className="side-rule" />
         <div className="workspace-label">YOUR WORK</div>
         <div className="history-list">
-          {historyError ? <div className="empty-history">{historyError}</div> : history.length ? history.map((entry) => (
+          {currentUser ? (historyError ? <div className="empty-history">{historyError}</div> : history.length ? history.map((entry) => (
             <div className={`history-entry ${snapshot?.idea.id === entry.ideaId ? 'active' : ''}`} key={entry.analysisId}>
               <button type="button" className="history-entry-open" title={entry.description} aria-current={snapshot?.analysis.id === entry.analysisId ? 'page' : undefined} onClick={() => void openHistory(entry)}>
                 <span className="history-entry-icon">⌕</span><span className="history-entry-text"><strong>{entry.name}</strong><small>{new Date(entry.createdAt).toLocaleDateString()}</small></span>
@@ -286,15 +366,22 @@ export default function HomePage() {
                 {deletingIdeaId === entry.ideaId ? <span className="delete-pending" aria-hidden="true">…</span> : <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M3 4.5h10M6 4.5V3h4v1.5m2 0-.5 8h-7l-.5-8m3 2.5v3m2-3v3" /></svg>}
               </button>
             </div>
-          )) : <div className="empty-history">{currentUserId ? 'No research yet. Start with an idea.' : 'Your research will show up here.'}</div>}
+          )) : <div className="empty-history">No research yet. Start with an idea.</div>) : guestSnapshots.length ? guestSnapshots.map((entry) => (
+            <div className={`history-entry ${snapshot?.analysis.id === entry.analysis.id ? 'active' : ''}`} key={entry.analysis.id}>
+              <button type="button" className="history-entry-open" title={entry.idea.description} aria-current={snapshot?.analysis.id === entry.analysis.id ? 'page' : undefined} onClick={() => showSnapshot(entry)}>
+                <span className="history-entry-icon">⌕</span><span className="history-entry-text"><strong>{entry.idea.name}</strong><small>{new Date(entry.analysis.createdAt).toLocaleDateString()} · Temporary</small></span>
+              </button>
+              <button type="button" className="history-entry-delete" aria-label={`Remove temporary analysis ${entry.idea.name}`} title="Remove temporary analysis" onClick={() => removeGuestSnapshot(entry.analysis.id)}>×</button>
+            </div>
+          )) : <div className="empty-history">{historyError || <>Guest analyses stay here until you leave or reload.<a href="/login">Sign up / Log in to save</a></>}</div>}
         </div>
         <div className="sidebar-bottom">
-          <div className="avatar">{currentUser?.initials ?? '—'}</div><div className="profile"><strong>{currentUser?.name ?? 'Loading user'}</strong><span>{currentUser?.email ?? 'Signed in'}</span></div><button className="more-btn" aria-label="Sign out" title="Sign out" onClick={() => void signOut()}>↪</button>
+          {currentUser ? <><div className="avatar">{currentUser.initials}</div><div className="profile"><strong>{currentUser.name}</strong><span>{currentUser.email}</span></div><button className="more-btn" aria-label="Sign out" title="Sign out" onClick={() => void signOut()}>↪</button></> : <a className="sidebar-auth-cta" href="/login">Sign up / Log in <span>↗</span></a>}
         </div>
       </aside>
 
       <main id="top" className="main-content">
-        <header className="topbar"><div className="breadcrumb">Workspace <span>/</span> <strong>{snapshot?.idea.name ?? (page === 'home' ? 'Home' : 'Stage 1 · Explore the market')}</strong></div><div className="topbar-right"><span className="signed-in-label">{currentUser?.email}</span><button className="signout-btn" onClick={() => void signOut()}>Sign out</button></div></header>
+        <header className="topbar"><div className="breadcrumb">Workspace <span>/</span> <strong>{snapshot?.idea.name ?? (page === 'home' ? 'Home' : 'Stage 1 · Explore the market')}</strong></div><div className="topbar-right">{currentUser ? <><span className="signed-in-label">{currentUser.email}</span><button className="signout-btn" onClick={() => void signOut()}>Sign out</button></> : <a className="signout-btn auth-nav-cta" href="/login">Sign up / Log in</a>}</div></header>
 
         {page === 'home' ? <section className="home-view">
           <div className="home-eyebrow"><span className="eyebrow-line" /> A CLEARER VIEW OF YOUR COMPETITION</div>
@@ -319,7 +406,7 @@ export default function HomePage() {
             <div className="card-label"><span className="spark">✳</span> YOUR APP IDEA <span className="optional">Be specific — the details help us find better matches.</span></div>
             <label className="sr-only" htmlFor="idea">Describe the app you want to build</label>
             <textarea id="idea" rows={3} placeholder="An app that helps people plan meals around what’s already in their fridge, with recipes that adapt to dietary needs…" value={description} onChange={(event) => setDescription(event.target.value)} onKeyDown={onIdeaKeyDown} />
-            <div className="form-footer"><span className="char-count"><span>{charCount}</span> / 500</span><div className="form-actions"><button className="analyze-btn" disabled={loading} onClick={() => void analyze()}><span>{loading && analysisProgress ? analysisProgressLabels[analysisProgress] : snapshot && snapshot.idea.description === description.trim() ? 'Re-analyze the market' : 'Analyze the market'}</span><span className="arrow">↗</span></button></div></div>
+            <div className="form-footer"><span className="char-count"><span>{charCount}</span> / 500</span><div className="form-actions"><button className="analyze-btn" disabled={loading || !authReady} onClick={() => void analyze()}><span>{loading && analysisProgress ? analysisProgressLabels[analysisProgress] : !authReady ? 'Checking account…' : snapshot && snapshot.idea.description === description.trim() ? 'Re-analyze the market' : 'Analyze the market'}</span><span className="arrow">↗</span></button></div></div>
           </section>
 
           <div className="trust-note"><span className="lock">⌑</span> Competitor listings, ratings, and recent reviews are fetched live. Review themes are clustered separately for each app.</div>
@@ -332,7 +419,7 @@ export default function HomePage() {
               <section className="panel themes-panel" aria-label="Review themes being generated"><div className="panel-heading"><div><span className="panel-index">02</span><h3>Review themes</h3></div><span className="panel-meta">IN PROGRESS</span></div><div className="sentiment-tabs" role="tablist">{groups.map((item) => <span key={item.key} className={`sentiment-tab ${group === item.key ? 'active' : ''}`}>{item.title} <span>{item.label}</span></span>)}</div><div className="loading-panel-content"><span className="loading-status"><span className="loading-spinner" />{analysisProgress === 'generatingThemes' ? 'Generating review themes…' : analysisProgress === 'saving' ? 'Saving review themes…' : 'Collecting recent reviews…'}</span><div className="loading-lines theme-loading-lines" aria-hidden="true"><i /><i /><i /></div></div></section>
             </div>
           </section> : snapshot ? <section className="results" id="results" aria-live="polite">
-            <div className="results-head"><div><div className="section-kicker"><span className="live-pulse" /> MARKET SNAPSHOT <span className="demo-pill">{snapshot.isDemo ? 'ILLUSTRATIVE DATA' : 'LIVE APP LISTINGS'}</span></div><h2>{snapshot.idea.name}</h2><p className="results-sub">A first look at the apps closest to your idea and the themes in each app’s recent reviews.</p></div><button className="export-btn" onClick={() => void exportSummary()}>↓ <span>Export summary</span></button></div>
+            <div className="results-head"><div><div className="section-kicker"><span className="live-pulse" /> MARKET SNAPSHOT <span className="demo-pill">{snapshot.isTemporary ? 'TEMPORARY · NOT SAVED' : snapshot.isDemo ? 'ILLUSTRATIVE DATA' : 'LIVE APP LISTINGS'}</span></div><h2>{snapshot.idea.name}</h2><p className="results-sub">{snapshot.isTemporary ? 'This snapshot is temporary and will disappear when you leave or reload. Sign up or log in to save future analyses.' : 'A first look at the apps closest to your idea and the themes in each app’s recent reviews.'}</p></div><button className="export-btn" onClick={() => void exportSummary()}>↓ <span>Export summary</span></button></div>
             <div className="summary-strip"><div className="summary-item"><span className="summary-icon green">⌕</span><div><strong>{snapshot.summary.similarAppCount}</strong><span>similar apps</span></div></div><div className="summary-divider" /><div className="summary-item"><span className="summary-icon violet">▤</span><div><strong>{snapshot.summary.reviewCountLabel}</strong><span>reviews scanned</span></div></div><div className="summary-divider" /><div className="summary-item"><span className="summary-icon amber">◎</span><div><strong>{snapshot.summary.sentimentGroupCount}</strong><span>sentiment groups</span></div></div></div>
             <div className="analysis-grid">
               <section className="panel competitors-panel"><div className="panel-heading"><div><span className="panel-index">01</span><h3>Similar apps</h3></div><span className="panel-meta">{snapshot.summary.similarAppCount} APPS · SELECT AN APP</span></div><div className="competitor-list">{visibleCompetitors.map((app) => <div className={`competitor-row ${selectedCompetitorId === app.id ? 'selected' : ''}`} key={app.id}>{app.url ? <a className="competitor-name-link" href={app.url} target="_blank" rel="noopener noreferrer">{app.name}</a> : <strong className="competitor-name">{app.name}</strong>}<button type="button" className="competitor-select" aria-label={`Show review themes for ${app.name}`} aria-pressed={selectedCompetitorId === app.id} onClick={() => setSelectedCompetitorId(app.id)}><div className="app-info"><span>{app.appSummary}</span></div>{app.rating !== null && Number.isFinite(Number(app.rating)) && <span className="app-rating"><span className="star">★</span> {Number(app.rating).toFixed(1)}</span>}</button></div>)}</div><button className="view-all" onClick={() => setShowAll((value) => !value)}>{showAll ? 'Show fewer competitors' : 'View all competitors'} <span>{showAll ? '↑' : '→'}</span></button></section>

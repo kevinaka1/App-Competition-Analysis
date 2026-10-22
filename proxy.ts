@@ -3,7 +3,14 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { getSupabasePublicConfig } from '@/lib/supabase/env';
 
 export async function proxy(request: NextRequest) {
-  const { url, key } = getSupabasePublicConfig();
+  let url: string;
+  let key: string;
+  try {
+    ({ url, key } = getSupabasePublicConfig());
+  } catch {
+    // Public pages remain available even before Auth is configured.
+    return NextResponse.next({ request });
+  }
   let response = NextResponse.next({ request });
   const supabase = createServerClient(url, key, {
     cookies: {
@@ -16,15 +23,7 @@ export async function proxy(request: NextRequest) {
     }
   });
 
-  const { data: { user } } = await supabase.auth.getUser();
-  const isLoginPage = request.nextUrl.pathname === '/login';
-  const isAuthCallback = request.nextUrl.pathname.startsWith('/auth/callback');
-  if (!user && !isLoginPage && !isAuthCallback) {
-    const loginUrl = new URL('/login', request.url);
-    loginUrl.searchParams.set('next', `${request.nextUrl.pathname}${request.nextUrl.search}`);
-    return NextResponse.redirect(loginUrl);
-  }
-  if (user && isLoginPage) return NextResponse.redirect(new URL('/?view=explore', request.url));
+  await supabase.auth.getUser();
   return response;
 }
 

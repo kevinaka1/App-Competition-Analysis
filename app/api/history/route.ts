@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   try {
     const auth = await getAuthenticatedProfile();
-    if (!auth) return NextResponse.json({ error: 'You must sign in to continue.' }, { status: 401 });
+    if (!auth) return NextResponse.json({ history: [] });
     const userId = auth.profile.id;
     const supabase = getSupabase();
     const { data: ideas, error: ideasError } = await supabase.from('ideas').select('id,name,description,created_at').eq('user_id', userId);

@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   try {
     const result = await getAuthenticatedProfile();
-    if (!result) return NextResponse.json({ error: 'You must sign in to continue.' }, { status: 401 });
+    if (!result) return NextResponse.json({ user: null });
     return NextResponse.json({ user: { ...result.profile, email: result.profile.email ?? '' } });
   } catch (error) {
     console.error('Could not load the signed-in profile.', error);

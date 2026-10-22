@@ -57,6 +57,7 @@ export interface MarketSnapshot {
     sentimentGroupCount: number;
   };
   isDemo: boolean;
+  isTemporary?: boolean;
 }
 
 export interface MarketFixtures {
