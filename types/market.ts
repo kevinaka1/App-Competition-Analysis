@@ -27,6 +27,8 @@ export interface Competitor {
   name: string;
   appSummary: string;
   url: string | null;
+  appleAppStoreUrl?: string | null;
+  googlePlayUrl?: string | null;
   rating: number | null;
   similarityPercent: number | null;
   reviewThemes: Record<Sentiment, ReviewTheme[]>;

@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState, type KeyboardEvent } from 'react';
-import { marketApi, type AppMetadataResult, type ReviewCluster } from '@/lib/market-client';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { marketApi, type AppMetadataResult, type CreateAnalysisInput, type ReviewCluster } from '@/lib/market-client';
 import { createSupabaseBrowserClient } from '@/lib/supabase/client';
 import type { HistoryEntry, MarketSnapshot, MarketUser, Sentiment } from '@/types/market';
 
@@ -19,6 +19,12 @@ const analysisProgressLabels: Record<AnalysisProgress, string> = {
   fetchingReviews: 'Collecting recent reviews…',
   generatingThemes: 'Generating review themes…',
   saving: 'Saving your snapshot…'
+};
+const guestSnapshotTransferKey = 'app-competition-analysis:guest-snapshot-transfer';
+
+type GuestSnapshotTransfer = {
+  snapshots: MarketSnapshot[];
+  completedAnalysisIds: string[];
 };
 
 function formatMentions(count: number): string {
@@ -77,6 +83,8 @@ function createTemporarySnapshot(
         name: app.name,
         appSummary: app.appSummary,
         url: app.appleAppStoreUrl ?? app.googlePlayUrl,
+        appleAppStoreUrl: app.appleAppStoreUrl,
+        googlePlayUrl: app.googlePlayUrl,
         rating: app.averageUserRating,
         similarityPercent: null,
         reviewThemes
@@ -94,11 +102,74 @@ function createTemporarySnapshot(
   };
 }
 
+function createAnalysisInput(snapshot: MarketSnapshot): CreateAnalysisInput {
+  const apps = snapshot.competitors.map((competitor) => {
+    let appleAppStoreUrl = competitor.appleAppStoreUrl ?? null;
+    let googlePlayUrl = competitor.googlePlayUrl ?? null;
+    if (!appleAppStoreUrl && !googlePlayUrl && competitor.url) {
+      try {
+        const url = new URL(competitor.url);
+        if (url.hostname === 'apps.apple.com') appleAppStoreUrl = competitor.url;
+        if (url.hostname === 'play.google.com') googlePlayUrl = competitor.url;
+      } catch {
+        // The write API will reject malformed or unsupported store URLs.
+      }
+    }
+    if (!competitor.rating || competitor.rating <= 0) {
+      throw new Error(`Cannot save ${competitor.name}: its store rating is missing.`);
+    }
+    return {
+      name: competitor.name,
+      appSummary: competitor.appSummary,
+      appleAppStoreUrl,
+      googlePlayUrl,
+      averageUserRating: competitor.rating,
+      reviewCount: null,
+      errors: {}
+    };
+  });
+
+  return {
+    description: snapshot.idea.description,
+    suggestedAppName: snapshot.idea.name,
+    apps,
+    reviewThemesByApp: snapshot.competitors.map((competitor, appIndex) => ({
+      appIndex,
+      groups: Object.fromEntries((['negative', 'average', 'positive'] as Sentiment[]).map((sentiment) => [
+        sentiment,
+        competitor.reviewThemes[sentiment].map((theme, clusterId) => ({
+          clusterId,
+          summary: theme.name,
+          exampleReview: theme.example,
+          mentions: theme.mentions
+        }))
+      ])) as Record<Sentiment, ReviewCluster[]>
+    }))
+  };
+}
+
+function readGuestSnapshotTransfer(): GuestSnapshotTransfer | null {
+  try {
+    const stored = window.sessionStorage.getItem(guestSnapshotTransferKey);
+    if (!stored) return null;
+    const parsed: unknown = JSON.parse(stored);
+    if (typeof parsed !== 'object' || parsed === null ||
+        !Array.isArray((parsed as GuestSnapshotTransfer).snapshots) ||
+        !Array.isArray((parsed as GuestSnapshotTransfer).completedAnalysisIds)) return null;
+    return parsed as GuestSnapshotTransfer;
+  } catch {
+    return null;
+  }
+}
+
 export default function HomePage() {
   const [currentUser, setCurrentUser] = useState<MarketUser | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [guestSnapshots, setGuestSnapshots] = useState<MarketSnapshot[]>([]);
+  const [importingGuestSnapshots, setImportingGuestSnapshots] = useState(false);
+  const [guestTransferError, setGuestTransferError] = useState('');
+  const guestTransferInFlight = useRef(false);
   const [description, setDescription] = useState('');
   const [snapshot, setSnapshot] = useState<MarketSnapshot | null>(null);
   const [selectedCompetitorId, setSelectedCompetitorId] = useState<string | null>(null);
@@ -117,6 +188,24 @@ export default function HomePage() {
     window.setTimeout(() => setToastMessage(''), 2600);
   }
 
+  function beginSignIn() {
+    try {
+      const previousTransfer = readGuestSnapshotTransfer();
+      const snapshots = new Map((previousTransfer?.snapshots ?? []).map((entry) => [entry.analysis.id, entry]));
+      guestSnapshots.forEach((entry) => snapshots.set(entry.analysis.id, entry));
+      if (snapshots.size > 0) {
+        window.sessionStorage.setItem(guestSnapshotTransferKey, JSON.stringify({
+          snapshots: [...snapshots.values()],
+          completedAnalysisIds: previousTransfer?.completedAnalysisIds ?? []
+        } satisfies GuestSnapshotTransfer));
+      }
+      window.location.assign('/login');
+    } catch (error) {
+      console.error('Could not prepare temporary analyses for sign-in.', error);
+      toast('Could not prepare your temporary analyses. Please try again.');
+    }
+  }
+
   async function loadHistory() {
     try {
       setHistoryError('');
@@ -128,11 +217,69 @@ export default function HomePage() {
     }
   }
 
+  async function importGuestSnapshots() {
+    if (guestTransferInFlight.current) return;
+    const transfer = readGuestSnapshotTransfer();
+    if (!transfer) return;
+    const completed = new Set(transfer.completedAnalysisIds);
+    const pendingSnapshots = transfer.snapshots.filter((entry) => !completed.has(entry.analysis.id));
+    if (pendingSnapshots.length === 0) {
+      window.sessionStorage.removeItem(guestSnapshotTransferKey);
+      setGuestSnapshots([]);
+      return;
+    }
+
+    let importedCount = 0;
+    guestTransferInFlight.current = true;
+    setImportingGuestSnapshots(true);
+    setGuestTransferError('');
+    try {
+      for (const guestSnapshot of pendingSnapshots) {
+        try {
+          await marketApi.createAnalysis(createAnalysisInput(guestSnapshot));
+        } catch (error) {
+          console.error('Could not save a temporary guest analysis to the signed-in account.', error);
+          setGuestSnapshots(pendingSnapshots);
+          await loadHistory();
+          setGuestTransferError(`Could not save all temporary analyses. ${importedCount ? `${importedCount} saved. ` : ''}Try again to save the rest.`);
+          return;
+        }
+
+        importedCount += 1;
+        completed.add(guestSnapshot.analysis.id);
+        try {
+          window.sessionStorage.setItem(guestSnapshotTransferKey, JSON.stringify({
+            snapshots: transfer.snapshots,
+            completedAnalysisIds: [...completed]
+          } satisfies GuestSnapshotTransfer));
+        } catch (error) {
+          console.error('Could not update the temporary analysis transfer checkpoint.', error);
+          await loadHistory();
+          setGuestTransferError('An analysis was saved, but its transfer status could not be recorded. Check Your Work before retrying.');
+          return;
+        }
+      }
+
+      window.sessionStorage.removeItem(guestSnapshotTransferKey);
+      setGuestSnapshots([]);
+      await loadHistory();
+      if (importedCount > 0) {
+        toast(`${importedCount} temporary ${importedCount === 1 ? 'analysis was' : 'analyses were'} saved to Your Work.`);
+      }
+    } finally {
+      guestTransferInFlight.current = false;
+      setImportingGuestSnapshots(false);
+    }
+  }
+
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get('view') === 'explore') setPage('explore');
     marketApi.getCurrentUser().then(async (user) => {
       setCurrentUser(user);
-      if (user) await loadHistory();
+      if (user) {
+        await loadHistory();
+        await importGuestSnapshots();
+      }
       else {
         setHistory([]);
         setHistoryError('');
@@ -299,7 +446,7 @@ export default function HomePage() {
         const temporarySnapshot = createTemporarySnapshot(text, similarApps.suggestedAppName, appsToSave, reviewThemesByApp);
         setGuestSnapshots((current) => [temporarySnapshot, ...current]);
         showSnapshot(temporarySnapshot);
-        toast('Temporary snapshot ready. Sign up or log in to save future analyses.');
+        toast('Temporary snapshot ready. Sign up or log in to save it to your account.');
       }
     } catch (error) {
       console.error('Market analysis failed:', error);
@@ -357,6 +504,8 @@ export default function HomePage() {
         <div className="side-rule" />
         <div className="workspace-label">YOUR WORK</div>
         <div className="history-list">
+          {importingGuestSnapshots && <div className="empty-history">Saving your temporary analyses to your account…</div>}
+          {guestTransferError && <div className="empty-history">{guestTransferError}<button type="button" className="history-entry-open" onClick={() => void importGuestSnapshots()}>Try saving again</button></div>}
           {currentUser ? (historyError ? <div className="empty-history">{historyError}</div> : history.length ? history.map((entry) => (
             <div className={`history-entry ${snapshot?.idea.id === entry.ideaId ? 'active' : ''}`} key={entry.analysisId}>
               <button type="button" className="history-entry-open" title={entry.description} aria-current={snapshot?.analysis.id === entry.analysisId ? 'page' : undefined} onClick={() => void openHistory(entry)}>
@@ -376,12 +525,12 @@ export default function HomePage() {
           )) : <div className="empty-history">{historyError || <>Guest analyses stay here until you leave or reload.<a href="/login">Sign up / Log in to save</a></>}</div>}
         </div>
         <div className="sidebar-bottom">
-          {currentUser ? <><div className="avatar">{currentUser.initials}</div><div className="profile"><strong>{currentUser.name}</strong><span>{currentUser.email}</span></div><button className="more-btn" aria-label="Sign out" title="Sign out" onClick={() => void signOut()}>↪</button></> : <a className="sidebar-auth-cta" href="/login">Sign up / Log in <span>↗</span></a>}
+          {currentUser ? <><div className="avatar">{currentUser.initials}</div><div className="profile"><strong>{currentUser.name}</strong><span>{currentUser.email}</span></div><button className="more-btn" aria-label="Sign out" title="Sign out" onClick={() => void signOut()}>↪</button></> : <a className="sidebar-auth-cta" href="/login" onClick={(event) => { event.preventDefault(); beginSignIn(); }}>Sign up / Log in <span>↗</span></a>}
         </div>
       </aside>
 
       <main id="top" className="main-content">
-        <header className="topbar"><div className="breadcrumb">Workspace <span>/</span> <strong>{snapshot?.idea.name ?? (page === 'home' ? 'Home' : 'Stage 1 · Explore the market')}</strong></div><div className="topbar-right">{currentUser ? <><span className="signed-in-label">{currentUser.email}</span><button className="signout-btn" onClick={() => void signOut()}>Sign out</button></> : <a className="signout-btn auth-nav-cta" href="/login">Sign up / Log in</a>}</div></header>
+        <header className="topbar"><div className="breadcrumb">Workspace <span>/</span> <strong>{snapshot?.idea.name ?? (page === 'home' ? 'Home' : 'Stage 1 · Explore the market')}</strong></div><div className="topbar-right">{currentUser ? <><span className="signed-in-label">{currentUser.email}</span><button className="signout-btn" onClick={() => void signOut()}>Sign out</button></> : <a className="signout-btn auth-nav-cta" href="/login" onClick={(event) => { event.preventDefault(); beginSignIn(); }}>Sign up / Log in</a>}</div></header>
 
         {page === 'home' ? <section className="home-view">
           <div className="home-eyebrow"><span className="eyebrow-line" /> A CLEARER VIEW OF YOUR COMPETITION</div>
@@ -419,7 +568,7 @@ export default function HomePage() {
               <section className="panel themes-panel" aria-label="Review themes being generated"><div className="panel-heading"><div><span className="panel-index">02</span><h3>Review themes</h3></div><span className="panel-meta">IN PROGRESS</span></div><div className="sentiment-tabs" role="tablist">{groups.map((item) => <span key={item.key} className={`sentiment-tab ${group === item.key ? 'active' : ''}`}>{item.title} <span>{item.label}</span></span>)}</div><div className="loading-panel-content"><span className="loading-status"><span className="loading-spinner" />{analysisProgress === 'generatingThemes' ? 'Generating review themes…' : analysisProgress === 'saving' ? 'Saving review themes…' : 'Collecting recent reviews…'}</span><div className="loading-lines theme-loading-lines" aria-hidden="true"><i /><i /><i /></div></div></section>
             </div>
           </section> : snapshot ? <section className="results" id="results" aria-live="polite">
-            <div className="results-head"><div><div className="section-kicker"><span className="live-pulse" /> MARKET SNAPSHOT <span className="demo-pill">{snapshot.isTemporary ? 'TEMPORARY · NOT SAVED' : snapshot.isDemo ? 'ILLUSTRATIVE DATA' : 'LIVE APP LISTINGS'}</span></div><h2>{snapshot.idea.name}</h2><p className="results-sub">{snapshot.isTemporary ? 'This snapshot is temporary and will disappear when you leave or reload. Sign up or log in to save future analyses.' : 'A first look at the apps closest to your idea and the themes in each app’s recent reviews.'}</p></div><button className="export-btn" onClick={() => void exportSummary()}>↓ <span>Export summary</span></button></div>
+            <div className="results-head"><div><div className="section-kicker"><span className="live-pulse" /> MARKET SNAPSHOT <span className="demo-pill">{snapshot.isTemporary ? 'TEMPORARY · NOT SAVED' : snapshot.isDemo ? 'ILLUSTRATIVE DATA' : 'LIVE APP LISTINGS'}</span></div><h2>{snapshot.idea.name}</h2><p className="results-sub">{snapshot.isTemporary ? 'This snapshot is temporary until you sign up or log in. We’ll save it to your account after you authenticate.' : 'A first look at the apps closest to your idea and the themes in each app’s recent reviews.'}</p></div><button className="export-btn" onClick={() => void exportSummary()}>↓ <span>Export summary</span></button></div>
             <div className="summary-strip"><div className="summary-item"><span className="summary-icon green">⌕</span><div><strong>{snapshot.summary.similarAppCount}</strong><span>similar apps</span></div></div><div className="summary-divider" /><div className="summary-item"><span className="summary-icon violet">▤</span><div><strong>{snapshot.summary.reviewCountLabel}</strong><span>reviews scanned</span></div></div><div className="summary-divider" /><div className="summary-item"><span className="summary-icon amber">◎</span><div><strong>{snapshot.summary.sentimentGroupCount}</strong><span>sentiment groups</span></div></div></div>
             <div className="analysis-grid">
               <section className="panel competitors-panel"><div className="panel-heading"><div><span className="panel-index">01</span><h3>Similar apps</h3></div><span className="panel-meta">{snapshot.summary.similarAppCount} APPS · SELECT AN APP</span></div><div className="competitor-list">{visibleCompetitors.map((app) => <div className={`competitor-row ${selectedCompetitorId === app.id ? 'selected' : ''}`} key={app.id}>{app.url ? <a className="competitor-name-link" href={app.url} target="_blank" rel="noopener noreferrer">{app.name}</a> : <strong className="competitor-name">{app.name}</strong>}<button type="button" className="competitor-select" aria-label={`Show review themes for ${app.name}`} aria-pressed={selectedCompetitorId === app.id} onClick={() => setSelectedCompetitorId(app.id)}><div className="app-info"><span>{app.appSummary}</span></div>{app.rating !== null && Number.isFinite(Number(app.rating)) && <span className="app-rating"><span className="star">★</span> {Number(app.rating).toFixed(1)}</span>}</button></div>)}</div><button className="view-all" onClick={() => setShowAll((value) => !value)}>{showAll ? 'Show fewer competitors' : 'View all competitors'} <span>{showAll ? '↑' : '→'}</span></button></section>
