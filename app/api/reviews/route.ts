@@ -21,6 +21,7 @@ type AppInput = {
 
 type Review = {
   id: string;
+  store: Store;
   score: number;
   title: string | null;
   text: string;
@@ -99,7 +100,7 @@ function normalizeGoogleReview(review: GooglePlayReview): ScrapedReview | null {
 function stripReviewMetadata(groups: ReviewGroups): ResponseReviewGroups {
   return Object.fromEntries(SENTIMENTS.map((sentiment) => [
     sentiment,
-    groups[sentiment].map(({ id, score, title, text, createdAt }) => ({ id, score, title, text, createdAt }))
+    groups[sentiment].map(({ id, store, score, title, text, createdAt }) => ({ id, store, score, title, text, createdAt }))
   ])) as ResponseReviewGroups;
 }
 

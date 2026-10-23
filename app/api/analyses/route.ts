@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { randomUUID } from 'node:crypto';
 import { getSupabase } from '@/lib/supabase';
 import { getAuthenticatedProfile } from '@/lib/auth';
+import type { ClusterReview } from '@/lib/reviews/centroids';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,7 +18,7 @@ type CompetitorInput = {
 };
 
 type Sentiment = 'negative' | 'average' | 'positive';
-type ReviewThemeInput = { summary: string; exampleReview: string; mentions: number };
+type ReviewThemeInput = { summary: string; exampleReview: string; mentions: number; reviews: ClusterReview[] };
 type AppReviewThemesInput = { appIndex: number; groups: Record<Sentiment, ReviewThemeInput[]> };
 const SENTIMENTS: Sentiment[] = ['negative', 'average', 'positive'];
 
@@ -101,13 +103,25 @@ export async function POST(request: NextRequest) {
         const summary = typeof theme.summary === 'string' ? theme.summary.trim() : '';
         const exampleReview = typeof theme.exampleReview === 'string' ? theme.exampleReview.trim() : '';
         const mentions = theme.mentions;
+        const reviews = theme.reviews;
         if (!summary || summary.split(/\s+/).length > 5 || !exampleReview || exampleReview.length > 5_000) {
           return NextResponse.json({ error: `reviewThemesByApp[${appIndex}].groups.${sentiment}[${themeIndex}] requires a theme phrase of at most 5 words and an example review.` }, { status: 400 });
         }
         if (!Number.isSafeInteger(mentions) || (mentions as number) < 1) {
           return NextResponse.json({ error: `reviewThemesByApp[${appIndex}].groups.${sentiment}[${themeIndex}].mentions must be a positive integer.` }, { status: 400 });
         }
-        normalized.push({ summary, exampleReview, mentions: mentions as number });
+        if (!Array.isArray(reviews) || reviews.length > 50 || reviews.some((review) =>
+          typeof review !== 'object' || review === null ||
+          typeof review.id !== 'string' || review.id.length > 500 ||
+          (review.store !== 'appleStore' && review.store !== 'googlePlay') ||
+          typeof review.score !== 'number' || !Number.isFinite(review.score) || review.score < 0.5 || review.score > 5 ||
+          (review.title !== null && (typeof review.title !== 'string' || review.title.length > 5_000)) ||
+          typeof review.text !== 'string' || !review.text.trim() || review.text.length > 5_000 ||
+          (review.createdAt !== null && (typeof review.createdAt !== 'string' || !Number.isFinite(Date.parse(review.createdAt))))
+        )) {
+          return NextResponse.json({ error: `reviewThemesByApp[${appIndex}].groups.${sentiment}[${themeIndex}].reviews must contain at most 50 valid reviews.` }, { status: 400 });
+        }
+        normalized.push({ summary, exampleReview, mentions: mentions as number, reviews: reviews as ClusterReview[] });
       }
       normalizedGroups[sentiment] = normalized;
     }
@@ -209,17 +223,36 @@ export async function POST(request: NextRequest) {
       return data.id as string;
     });
 
-    const themeRows = normalizedReviewThemesByApp.flatMap(({ appIndex, groups }) => SENTIMENTS.flatMap((sentiment) => groups[sentiment].map((theme) => ({
-      analysis_id: analysis.id,
-      analysis_competitor_id: competitorIds[appIndex],
-      sentiment,
-      summary: theme.summary,
-      example_review: theme.exampleReview,
-      mentions: theme.mentions
-    }))));
+    const reviewRows: Array<Record<string, unknown>> = [];
+    const themeRows = normalizedReviewThemesByApp.flatMap(({ appIndex, groups }) => SENTIMENTS.flatMap((sentiment) => groups[sentiment].map((theme) => {
+      const themeId = randomUUID();
+      theme.reviews.slice(0, 50).forEach((review, index) => reviewRows.push({
+        review_theme_id: themeId,
+        source_review_id: review.id,
+        store: review.store,
+        score: review.score,
+        title: review.title,
+        body: review.text,
+        reviewed_at: review.createdAt,
+        position: index + 1
+      }));
+      return {
+        id: themeId,
+        analysis_id: analysis.id,
+        analysis_competitor_id: competitorIds[appIndex],
+        sentiment,
+        summary: theme.summary,
+        example_review: theme.exampleReview,
+        mentions: theme.mentions
+      };
+    })));
     if (themeRows.length) {
       const { error: themesError } = await supabase.from('review_themes').insert(themeRows);
       if (themesError) throw themesError;
+    }
+    if (reviewRows.length) {
+      const { error: reviewsError } = await supabase.from('review_cluster_reviews').insert(reviewRows);
+      if (reviewsError) throw reviewsError;
     }
 
     if (!createdNewIdea) {

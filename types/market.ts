@@ -20,6 +20,16 @@ export interface ReviewTheme {
   name: string;
   example: string;
   mentions: number;
+  reviews?: ClusterReview[];
+}
+
+export interface ClusterReview {
+  id: string;
+  store: 'appleStore' | 'googlePlay';
+  score: number;
+  title: string | null;
+  text: string;
+  createdAt: string | null;
 }
 
 export interface Competitor {

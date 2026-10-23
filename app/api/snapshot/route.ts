@@ -35,12 +35,50 @@ export async function GET(request: NextRequest) {
     if (competitorResult.error) throw competitorResult.error;
     if (themeResult.error) throw themeResult.error;
 
-    const themesByCompetitor = new Map<string, Record<Sentiment, Array<{ id: string; name: string; example: string; mentions: number }>>>();
+    const reviewThemeIds = themeResult.data.map((theme) => theme.id);
+    const reviewRows: Array<{ review_theme_id: string; source_review_id: string; store: string; score: number; title: string | null; body: string; reviewed_at: string | null }> = [];
+    if (reviewThemeIds.length) {
+      const pageSize = 1_000;
+      let offset = 0;
+      let totalCount = Number.POSITIVE_INFINITY;
+      while (offset < totalCount) {
+        const reviewResult = await supabase.from('review_cluster_reviews')
+          .select('review_theme_id,source_review_id,store,score,title,body,reviewed_at', { count: 'exact' })
+          .in('review_theme_id', reviewThemeIds)
+          .order('reviewed_at', { ascending: false, nullsFirst: false })
+          .order('review_theme_id', { ascending: true })
+          .order('position', { ascending: true })
+          .range(offset, offset + pageSize - 1);
+        if (reviewResult.error) throw reviewResult.error;
+        totalCount = reviewResult.count ?? offset + reviewResult.data.length;
+        if (reviewResult.data.length === 0) break;
+        reviewRows.push(...reviewResult.data);
+        offset += reviewResult.data.length;
+        if (reviewResult.count === null && reviewResult.data.length < pageSize) break;
+      }
+    }
+
+    const reviewsByTheme = new Map<string, Array<{ id: string; store: 'appleStore' | 'googlePlay'; score: number; title: string | null; text: string; createdAt: string | null }>>();
+    reviewRows.forEach((review) => {
+      const reviews = reviewsByTheme.get(review.review_theme_id) ?? [];
+      reviews.push({
+        id: review.source_review_id,
+        store: review.store as 'appleStore' | 'googlePlay',
+        score: Number(review.score),
+        title: review.title,
+        text: review.body,
+        createdAt: review.reviewed_at
+      });
+      reviewsByTheme.set(review.review_theme_id, reviews);
+    });
+
+    const themesByCompetitor = new Map<string, Record<Sentiment, Array<{ id: string; name: string; example: string; mentions: number; reviews: Array<{ id: string; store: 'appleStore' | 'googlePlay'; score: number; title: string | null; text: string; createdAt: string | null }> }>>>();
     themeResult.data.forEach((theme) => {
       if (!theme.analysis_competitor_id) return;
       const themes = themesByCompetitor.get(theme.analysis_competitor_id) ?? { positive: [], average: [], negative: [] };
       themes[theme.sentiment as Sentiment].push({
-        id: theme.id, name: theme.summary, example: theme.example_review, mentions: theme.mentions
+        id: theme.id, name: theme.summary, example: theme.example_review, mentions: theme.mentions,
+        reviews: reviewsByTheme.get(theme.id) ?? []
       });
       themesByCompetitor.set(theme.analysis_competitor_id, themes);
     });

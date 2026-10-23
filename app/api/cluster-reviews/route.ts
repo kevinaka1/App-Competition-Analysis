@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { clusterReviews, summarizeReviewClusters, type ReviewClusterTheme } from '@/lib/reviews/centroids';
+import { clusterReviews, summarizeReviewClusters, type ClusterReview, type ReviewClusterTheme } from '@/lib/reviews/centroids';
 import type { Sentiment } from '@/types/market';
 
 export const dynamic = 'force-dynamic';
@@ -7,10 +7,10 @@ export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 const SENTIMENTS: Sentiment[] = ['negative', 'average', 'positive'];
-const MAX_REVIEWS_PER_SENTIMENT = 500;
+const MAX_REVIEWS_PER_SENTIMENT = 50;
 const MAX_REVIEW_LENGTH = 5_000;
 
-type AppReviewInput = { appIndex: number; reviews: Record<Sentiment, Array<{ text: string; displayText: string }>> };
+type AppReviewInput = { appIndex: number; reviews: Record<Sentiment, ClusterReview[]> };
 
 async function mapWithConcurrency<T, U>(items: T[], concurrency: number, mapper: (item: T) => Promise<U>): Promise<U[]> {
   const results = new Array<U>(items.length);
@@ -58,15 +58,18 @@ export async function POST(request: NextRequest) {
     const reviews = app.reviews as Record<string, unknown>;
     for (const sentiment of SENTIMENTS) {
       const group = reviews[sentiment];
-      if (!Array.isArray(group) || group.length > MAX_REVIEWS_PER_SENTIMENT || group.some((review) =>
-        typeof review !== 'object' || review === null ||
-        typeof (review as Record<string, unknown>).text !== 'string' ||
-        ((review as Record<string, unknown>).text as string).length > MAX_REVIEW_LENGTH ||
-        typeof (review as Record<string, unknown>).displayText !== 'string' ||
-        ((review as Record<string, unknown>).displayText as string).length > MAX_REVIEW_LENGTH
-      )) {
+      if (!Array.isArray(group) || group.length > MAX_REVIEWS_PER_SENTIMENT || group.some((review) => {
+        if (typeof review !== 'object' || review === null) return true;
+        const item = review as Record<string, unknown>;
+        return typeof item.id !== 'string' || item.id.length > 500 ||
+          (item.store !== 'appleStore' && item.store !== 'googlePlay') ||
+          typeof item.score !== 'number' || !Number.isFinite(item.score) || item.score < 0.5 || item.score > 5 ||
+          (item.title !== null && (typeof item.title !== 'string' || item.title.length > MAX_REVIEW_LENGTH)) ||
+          typeof item.text !== 'string' || item.text.length > MAX_REVIEW_LENGTH ||
+          (item.createdAt !== null && (typeof item.createdAt !== 'string' || item.createdAt.length > 100));
+      })) {
         return NextResponse.json({
-          error: `apps[${index}].reviews.${sentiment} must be an array of at most ${MAX_REVIEWS_PER_SENTIMENT} review objects with text and displayText fields.`
+          error: `apps[${index}].reviews.${sentiment} must be an array of at most ${MAX_REVIEWS_PER_SENTIMENT} review objects.`
         }, { status: 400 });
       }
     }
@@ -78,11 +81,10 @@ export async function POST(request: NextRequest) {
     const result = await mapWithConcurrency(apps, 2, async ({ appIndex, reviews }) => {
       const clusterGroups = await Promise.all(SENTIMENTS.map((sentiment) =>
         clusterReviews(
-          reviews[sentiment].map((review) => review.text),
+          reviews[sentiment],
           sentiment,
           clustersPerSentiment as number,
-          appIndex,
-          reviews[sentiment].map((review) => review.displayText)
+          appIndex
         )
       ));
       const summaries = await summarizeReviewClusters(clusterGroups.flat());

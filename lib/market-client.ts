@@ -19,7 +19,7 @@ export interface AppMetadataResult extends SimilarAppResult {
 }
 
 export interface AppReviewsResult extends SimilarAppResult {
-  reviews: Record<Sentiment, Array<{ id: string; score: number; title: string | null; text: string; createdAt: string | null }>>;
+  reviews: Record<Sentiment, Array<{ id: string; store: 'appleStore' | 'googlePlay'; score: number; title: string | null; text: string; createdAt: string | null }>>;
   errors: Partial<Record<'appleStore' | 'googlePlay', string>>;
 }
 
@@ -28,6 +28,7 @@ export interface ReviewCluster {
   summary: string;
   exampleReview: string;
   mentions: number;
+  reviews: Array<{ id: string; store: 'appleStore' | 'googlePlay'; score: number; title: string | null; text: string; createdAt: string | null }>;
 }
 
 export interface CreateAnalysisInput {
@@ -93,13 +94,7 @@ export const marketApi = {
       body: JSON.stringify({
         apps: apps.map((app, appIndex) => ({
           appIndex,
-          reviews: Object.fromEntries(Object.entries(app.reviews).map(([sentiment, reviews]) => [
-            sentiment,
-            reviews.map((review) => ({
-              text: [review.title, review.text].filter(Boolean).join('\n').trim(),
-              displayText: review.text.trim()
-            }))
-          ]))
+          reviews: app.reviews
         })),
         clustersPerSentiment: 5
       })

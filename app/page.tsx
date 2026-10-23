@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { marketApi, type AppMetadataResult, type CreateAnalysisInput, type ReviewCluster } from '@/lib/market-client';
 import { createSupabaseBrowserClient } from '@/lib/supabase/client';
-import type { HistoryEntry, MarketSnapshot, MarketUser, Sentiment } from '@/types/market';
+import type { HistoryEntry, MarketSnapshot, MarketUser, ReviewTheme, Sentiment } from '@/types/market';
 
 const groups: Array<{ key: Sentiment; title: string; label: string }> = [
   { key: 'positive', title: 'Loved', label: 'Positive' },
@@ -75,7 +75,8 @@ function createTemporarySnapshot(
           id: `temporary-${appIndex}-${sentiment}-${theme.clusterId}`,
           name: theme.summary,
           example: theme.exampleReview,
-          mentions: theme.mentions
+          mentions: theme.mentions,
+          reviews: theme.reviews
         }));
       }
       return {
@@ -141,7 +142,8 @@ function createAnalysisInput(snapshot: MarketSnapshot): CreateAnalysisInput {
           clusterId,
           summary: theme.name,
           exampleReview: theme.example,
-          mentions: theme.mentions
+          mentions: theme.mentions,
+          reviews: theme.reviews ?? []
         }))
       ])) as Record<Sentiment, ReviewCluster[]>
     }))
@@ -175,6 +177,7 @@ export default function HomePage() {
   const [selectedCompetitorId, setSelectedCompetitorId] = useState<string | null>(null);
   const [group, setGroup] = useState<Sentiment>('positive');
   const [showAll, setShowAll] = useState(false);
+  const [selectedReviewTheme, setSelectedReviewTheme] = useState<ReviewTheme | null>(null);
   const [page, setPage] = useState<'home' | 'explore'>('home');
   const [loading, setLoading] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState<AnalysisProgress | null>(null);
@@ -291,12 +294,14 @@ export default function HomePage() {
   }, []);
 
   function showHome() {
+    setSelectedReviewTheme(null);
     setPage('home');
     setSnapshot(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   function showExplore() {
+    setSelectedReviewTheme(null);
     setPage('explore');
     setSnapshot(null);
     setSelectedCompetitorId(null);
@@ -311,6 +316,7 @@ export default function HomePage() {
       toast('That saved snapshot could not be found.');
       return;
     }
+    setSelectedReviewTheme(null);
     setSnapshot(next);
     setSelectedCompetitorId(next.competitors[0]?.id ?? null);
     setGroup('positive');
@@ -491,6 +497,13 @@ export default function HomePage() {
   const visibleCompetitors = snapshot ? (showAll ? snapshot.competitors : snapshot.competitors.slice(0, 5)) : [];
   const selectedCompetitor = snapshot?.competitors.find((app) => app.id === selectedCompetitorId) ?? null;
   const currentThemes = selectedCompetitor?.reviewThemes[group] ?? [];
+  const selectedThemeReviews = [...(selectedReviewTheme?.reviews ?? [])].sort((left, right) => {
+    const leftDate = left.createdAt ? Date.parse(left.createdAt) : Number.NaN;
+    const rightDate = right.createdAt ? Date.parse(right.createdAt) : Number.NaN;
+    const leftTime = Number.isFinite(leftDate) ? leftDate : Number.NEGATIVE_INFINITY;
+    const rightTime = Number.isFinite(rightDate) ? rightDate : Number.NEGATIVE_INFINITY;
+    return rightTime - leftTime;
+  });
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -498,7 +511,6 @@ export default function HomePage() {
           <span className="brand-mark"><span /><span /><span /><span /></span>
           <span>App Competition Analysis</span>
         </a>
-        <div className="workspace-label">WORKSPACE</div>
         <button className={`nav-item ${page === 'home' ? 'active' : ''}`} onClick={showHome}><span className="nav-icon">⌂</span><span>Home</span></button>
         <button className={`nav-item ${page === 'explore' && !snapshot ? 'active' : ''}`} onClick={showExplore}><span className="nav-icon">⌕</span><span>Explore market</span><span className="nav-count">01</span></button>
         <div className="side-rule" />
@@ -530,17 +542,13 @@ export default function HomePage() {
       </aside>
 
       <main id="top" className="main-content">
-        <header className="topbar"><div className="breadcrumb">Workspace <span>/</span> <strong>{snapshot?.idea.name ?? (page === 'home' ? 'Home' : 'Stage 1 · Explore the market')}</strong></div><div className="topbar-right">{currentUser ? <><span className="signed-in-label">{currentUser.email}</span><button className="signout-btn" onClick={() => void signOut()}>Sign out</button></> : <a className="signout-btn auth-nav-cta" href="/login" onClick={(event) => { event.preventDefault(); beginSignIn(); }}>Sign up / Log in</a>}</div></header>
+        <header className="topbar"><div className="breadcrumb"><strong>{snapshot?.idea.name ?? (page === 'home' ? 'Home' : 'Stage 1 · Explore the market')}</strong></div><div className="topbar-right">{currentUser ? <><span className="signed-in-label">{currentUser.email}</span><button className="signout-btn" onClick={() => void signOut()}>Sign out</button></> : <a className="signout-btn auth-nav-cta" href="/login" onClick={(event) => { event.preventDefault(); beginSignIn(); }}>Sign up / Log in</a>}</div></header>
 
         {page === 'home' ? <section className="home-view">
           <div className="home-eyebrow"><span className="eyebrow-line" /> A CLEARER VIEW OF YOUR COMPETITION</div>
           <div className="home-hero">
-            <div className="home-copy"><h1>Build with a better<br /><em>read on the market.</em></h1><p>App Competition Analysis helps aspiring founders understand the apps already serving their idea. Explore competitors, learn what their users love and dislike, and find opportunities worth building for.</p><button className="home-cta" onClick={showExplore}>Start with your idea <span>↗</span></button><div className="home-footnote"><span>✳</span> Start with a description. Get a useful first look at the market.</div></div>
+            <div className="home-copy"><h1>Build with a better<br /><em>read on the market.</em></h1><p>App Competition Analysis helps aspiring founders understand the apps already serving their idea. Explore competitors, learn what their users love and dislike, and find opportunities worth building for.</p><button className="home-cta" onClick={showExplore}>Start with your idea <span>↗</span></button></div>
             <div className="home-visual" aria-hidden="true"><div className="orbit orbit-one" /><div className="orbit orbit-two" /><div className="orbit-center"><span className="brand-mark"><span /><span /><span /><span /></span></div><div className="orbit-node node-one">✳</div><div className="orbit-node node-two">⌕</div><div className="orbit-node node-three">◈</div><div className="orbit-caption">IDEA → INSIGHT → EVIDENCE</div></div>
-          </div>
-          <div className="stage-navigation" aria-label="Research stages">
-            <button className="stage-nav-item current" onClick={showExplore}><span className="stage-nav-number">01</span><span className="stage-nav-copy"><strong>Explore the market</strong><small>Find similar apps and review patterns</small></span><span className="stage-nav-state">AVAILABLE <b>↗</b></span></button>
-            <button className="stage-nav-item upcoming" onClick={() => toast('This stage is planned for a future release.')}><span className="stage-nav-number">02</span><span className="stage-nav-copy"><strong>Verify in the app</strong><small>See a phone agent explore screens</small></span><span className="stage-nav-state">COMING SOON</span></button>
           </div>
           <div className="home-lower"><span>YOUR IDEA, BETTER INFORMED</span></div>
         </section> : <div className="stage-one-view">
@@ -572,12 +580,19 @@ export default function HomePage() {
             <div className="summary-strip"><div className="summary-item"><span className="summary-icon green">⌕</span><div><strong>{snapshot.summary.similarAppCount}</strong><span>similar apps</span></div></div><div className="summary-divider" /><div className="summary-item"><span className="summary-icon violet">▤</span><div><strong>{snapshot.summary.reviewCountLabel}</strong><span>reviews scanned</span></div></div><div className="summary-divider" /><div className="summary-item"><span className="summary-icon amber">◎</span><div><strong>{snapshot.summary.sentimentGroupCount}</strong><span>sentiment groups</span></div></div></div>
             <div className="analysis-grid">
               <section className="panel competitors-panel"><div className="panel-heading"><div><span className="panel-index">01</span><h3>Similar apps</h3></div><span className="panel-meta">{snapshot.summary.similarAppCount} APPS · SELECT AN APP</span></div><div className="competitor-list">{visibleCompetitors.map((app) => <div className={`competitor-row ${selectedCompetitorId === app.id ? 'selected' : ''}`} key={app.id}>{app.url ? <a className="competitor-name-link" href={app.url} target="_blank" rel="noopener noreferrer">{app.name}</a> : <strong className="competitor-name">{app.name}</strong>}<button type="button" className="competitor-select" aria-label={`Show review themes for ${app.name}`} aria-pressed={selectedCompetitorId === app.id} onClick={() => setSelectedCompetitorId(app.id)}><div className="app-info"><span>{app.appSummary}</span></div>{app.rating !== null && Number.isFinite(Number(app.rating)) && <span className="app-rating"><span className="star">★</span> {Number(app.rating).toFixed(1)}</span>}</button></div>)}</div><button className="view-all" onClick={() => setShowAll((value) => !value)}>{showAll ? 'Show fewer competitors' : 'View all competitors'} <span>{showAll ? '↑' : '→'}</span></button></section>
-            <section className="panel themes-panel"><div className="panel-heading"><div><span className="panel-index">02</span><h3>{selectedCompetitor ? `What ${selectedCompetitor.name} reviewers say` : 'What reviewers say'}</h3></div></div><div className="sentiment-tabs" role="tablist">{groups.map((item) => <button key={item.key} className={`sentiment-tab ${group === item.key ? 'active' : ''}`} role="tab" aria-selected={group === item.key} onClick={() => setGroup(item.key)}>{item.title} <span>{item.label}</span></button>)}</div><div className="theme-list">{currentThemes.length ? currentThemes.map((theme) => <div className="theme-row" key={theme.id}><div className="theme-line"><strong className="theme-name">{theme.name}</strong><span className="theme-count">{formatMentions(theme.mentions)}</span></div><div className="theme-examples">{displayReviewText(theme.example)}</div></div>) : <p className="theme-examples">{snapshot?.hasUnassignedReviewThemes ? 'This older snapshot has review themes combined across apps. Re-analyze it to generate themes for each app.' : selectedCompetitor ? `No ${group} review themes are saved for ${selectedCompetitor.name} in this snapshot.` : 'Select an app to see its review themes.'}</p>}</div></section>
+            <section className="panel themes-panel"><div className="panel-heading"><div><span className="panel-index">02</span><h3>{selectedCompetitor ? `What ${selectedCompetitor.name} reviewers say` : 'What reviewers say'}</h3></div></div><div className="sentiment-tabs" role="tablist">{groups.map((item) => <button key={item.key} className={`sentiment-tab ${group === item.key ? 'active' : ''}`} role="tab" aria-selected={group === item.key} onClick={() => setGroup(item.key)}>{item.title} <span>{item.label}</span></button>)}</div><div className="theme-list">{currentThemes.length ? currentThemes.map((theme) => <div className="theme-row" key={theme.id}><div className="theme-line"><strong className="theme-name">{theme.name}</strong><button type="button" className="theme-count" aria-label={`View reviews for ${theme.name}, ${formatMentions(theme.mentions)}`} onClick={() => setSelectedReviewTheme(theme)}>{formatMentions(theme.mentions)}</button></div><div className="theme-examples">{displayReviewText(theme.example)}</div></div>) : <p className="theme-examples">{snapshot?.hasUnassignedReviewThemes ? 'This older snapshot has review themes combined across apps. Re-analyze it to generate themes for each app.' : selectedCompetitor ? `No ${group} review themes are saved for ${selectedCompetitor.name} in this snapshot.` : 'Select an app to see its review themes.'}</p>}</div></section>
             </div>
           </section> : <section className="initial-state"><span className="initial-star">✳</span><div><strong>A little curiosity goes a long way.</strong><p>Start with your idea. We’ll help you see the market from your future customers’ point of view.</p></div><span className="initial-arrow">↗</span></section>}
           <footer className="page-footer"><span>APP COMPETITION ANALYSIS <span className="footer-dot">·</span> YOUR IDEA DESERVES A CLOSER LOOK</span></footer>
         </div>}
       </main>
+
+      {selectedReviewTheme && <div className="review-dialog-backdrop" onClick={(event) => { if (event.target === event.currentTarget) setSelectedReviewTheme(null); }}>
+        <section className="review-dialog" role="dialog" aria-modal="true" aria-labelledby="review-dialog-title" onKeyDown={(event) => { if (event.key === 'Escape') setSelectedReviewTheme(null); }} tabIndex={-1}>
+          <header className="review-dialog-header"><div><span className="review-dialog-kicker">{selectedCompetitor?.name ?? 'Competitor'} · {groups.find((item) => item.key === group)?.title ?? group}</span><h2 id="review-dialog-title">{selectedReviewTheme.name}</h2><p>{selectedThemeReviews.length ? `Showing ${selectedThemeReviews.length} of ${selectedReviewTheme.mentions} ${selectedReviewTheme.mentions === 1 ? 'review' : 'reviews'} in this cluster.` : `${formatMentions(selectedReviewTheme.mentions)} in this cluster.`}</p></div><button type="button" className="review-dialog-close" aria-label="Close reviews" autoFocus onClick={() => setSelectedReviewTheme(null)}>×</button></header>
+          {selectedThemeReviews.length ? <div className="review-table-wrap"><table className="review-table"><thead><tr><th scope="col">Rating</th><th scope="col">Review</th><th scope="col">Date</th><th scope="col">Store</th></tr></thead><tbody>{selectedThemeReviews.slice(0, 50).map((review) => <tr key={`${review.store}:${review.id}`}><td className="review-rating">★ {review.score}</td><td className="review-body">{review.title && <strong>{review.title}</strong>}<p>{review.text}</p></td><td>{review.createdAt && Number.isFinite(Date.parse(review.createdAt)) ? new Date(review.createdAt).toLocaleDateString() : '—'}</td><td>{review.store === 'appleStore' ? 'App Store' : 'Google Play'}</td></tr>)}</tbody></table></div> : <p className="review-dialog-empty">Individual review details aren’t available for this saved snapshot. Re-analyze the market to collect them.</p>}
+        </section>
+      </div>}
 
       <div className={`toast ${toastMessage ? 'show' : ''}`} role="status">{toastMessage}</div>
     </div>

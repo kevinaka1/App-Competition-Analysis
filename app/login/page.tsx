@@ -37,7 +37,7 @@ export default function LoginPage() {
           <span className="brand-mark"><span /><span /><span /><span /></span>
           <span>App Competition Analysis</span>
         </a>
-        <div className="auth-eyebrow">YOUR MARKET RESEARCH WORKSPACE</div>
+        <div className="auth-eyebrow">YOUR MARKET RESEARCH</div>
         <h1 id="auth-title">Continue with Google.</h1>
         <p className="auth-description">New here? Your Google account creates a profile. Returning users can sign in the same way.</p>
         <button className="google-signin" type="button" onClick={() => void signInWithGoogle()} disabled={busy}>

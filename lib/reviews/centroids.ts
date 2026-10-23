@@ -10,6 +10,16 @@ export interface ReviewClusterInput {
     centroidReview: string;
     exampleReview: string;
     topReviews: string[];
+    reviews: ClusterReview[];
+}
+
+export interface ClusterReview {
+    id: string;
+    store: 'appleStore' | 'googlePlay';
+    score: number;
+    title: string | null;
+    text: string;
+    createdAt: string | null;
 }
 
 export interface ReviewClusterTheme {
@@ -18,22 +28,26 @@ export interface ReviewClusterTheme {
     summary: string;
     exampleReview: string;
     mentions: number;
+    reviews: ClusterReview[];
 }
 
 /** Embed review text with OpenAI and use k-means to find nearby review groups. */
 export async function clusterReviews(
-    texts: string[],
+    inputReviews: ClusterReview[],
     sentiment: ReviewClusterInput['sentiment'],
     requestedClusters = 3,
-    appIndex = 0,
-    displayTexts: string[] = texts
+    appIndex = 0
 ): Promise<ReviewClusterInput[]> {
-    const reviews = texts.map((text, index) => ({ text: text.trim(), displayText: (displayTexts[index] ?? text).trim() })).filter(({ text }) => Boolean(text));
+    const reviews = inputReviews.map((review) => ({
+        review,
+        text: [review.title, review.text].filter(Boolean).join('\n').trim(),
+        displayText: review.text.trim()
+    })).filter(({ text }) => Boolean(text));
     if (!reviews.length) return [];
 
     const clusterCount = Math.min(requestedClusters, reviews.length);
     if (reviews.length === 1) {
-        return [{ appIndex, sentiment, clusterId: 0, mentions: 1, centroidReview: reviews[0].text, exampleReview: reviews[0].displayText, topReviews: [reviews[0].text] }];
+        return [{ appIndex, sentiment, clusterId: 0, mentions: 1, centroidReview: reviews[0].text, exampleReview: reviews[0].displayText, topReviews: [reviews[0].text], reviews: [reviews[0].review] }];
     }
 
     const embeddings = new OpenAIEmbeddings({
@@ -42,11 +56,11 @@ export async function clusterReviews(
     });
     const vectors = await embeddings.embedDocuments(reviews.map(({ text }) => text));
     const result = kmeans(vectors, clusterCount, { initialization: 'kmeans++' });
-    const grouped = Array.from({ length: clusterCount }, () => [] as Array<{ review: string; displayText: string; distance: number }>);
+    const grouped = Array.from({ length: clusterCount }, () => [] as Array<{ review: string; displayText: string; distance: number; sourceReview: ClusterReview }>);
 
-    reviews.forEach(({ text, displayText }, index) => {
+    reviews.forEach(({ review, text, displayText }, index) => {
         const clusterId = result.clusters[index];
-        grouped[clusterId].push({ review: text, displayText, distance: result.distance(vectors[index], result.centroids[clusterId]) });
+        grouped[clusterId].push({ review: text, displayText, distance: result.distance(vectors[index], result.centroids[clusterId]), sourceReview: review });
     });
 
     return grouped.map((cluster, clusterId) => {
@@ -58,7 +72,8 @@ export async function clusterReviews(
             mentions: cluster.length,
             centroidReview: closestReviews[0].review,
             exampleReview: closestReviews[0].displayText,
-            topReviews: closestReviews.map(({ review }) => review)
+            topReviews: closestReviews.map(({ review }) => review),
+            reviews: cluster.map(({ sourceReview }) => sourceReview).slice(0, 50)
         };
     }).filter((cluster) => cluster.mentions > 0);
 }
@@ -123,9 +138,9 @@ export async function summarizeReviewClusters(clusters: ReviewClusterInput[]): P
     };
     const keyFor = (appIndex: number, sentiment: ReviewClusterInput['sentiment'], clusterId: number) => `${appIndex}:${sentiment}:${clusterId}`;
     const summaries = new Map(parsed.summaries.map((item) => [keyFor(item.appIndex, item.sentiment, item.clusterId), item.summary.trim()]));
-    return Object.fromEntries(clusters.map(({ appIndex, sentiment, clusterId, mentions, exampleReview }) => {
+    return Object.fromEntries(clusters.map(({ appIndex, sentiment, clusterId, mentions, exampleReview, reviews }) => {
         const summary = summaries.get(keyFor(appIndex, sentiment, clusterId));
         if (!summary || summary.split(/\s+/).length > 5) throw new Error(`OpenAI returned an invalid theme phrase for app ${appIndex}, ${sentiment} cluster ${clusterId}.`);
-        return [keyFor(appIndex, sentiment, clusterId), { appIndex, clusterId, summary, exampleReview, mentions }];
+        return [keyFor(appIndex, sentiment, clusterId), { appIndex, clusterId, summary, exampleReview, mentions, reviews }];
     }));
 }
